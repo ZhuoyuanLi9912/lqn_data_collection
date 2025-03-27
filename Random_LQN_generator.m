@@ -446,6 +446,9 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
             else
                 % Add OrFork precedence for this entry using the provided probabilities
+                if (sum(probabilities)~=1)
+                    display('not 1 it is', num2str(probabilities))
+                end
                 tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
             end
         end
@@ -453,7 +456,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
 
     % Solve the model using LQNS
     options = SolverLQNS.defaultOptions;
-    options.method = 'lqns';
+    options.method = 'lqsim';
     solver = SolverLQNS(model, options);
 
 

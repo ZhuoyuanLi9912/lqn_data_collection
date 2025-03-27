@@ -13,16 +13,9 @@ function Random_LQN_generator_complex(num_LQNs, output_file, config)
     if nargin < 3
         config = struct( ...
             'num_processors', [3, 10], ...  % Range for number of processors
-            'tasks_per_processor', [3, 3], ... % Range for tasks per processor
-            'entries_per_task', [3, 3], ... % Range for entries per task
-            'calls_per_entry', [2, 2], ...% Range for entry calls
-            'processor_multiplicity',[1,10], ...
-            'task_multiplicity',[1,5],...
-            'task_think_time_mean',[0.1,3], ...
-            'task_think_time_scv',[0.1,3], ...
-            'entry_service_time_mean',[0.1,3], ...
-            'entry_service_time_scv',[0.1,3]); % Processor Multiplicity 1-10
-            
+            'tasks_per_processor', [1, 4], ... % Range for tasks per processor
+            'entries_per_task', [1, 3], ... % Range for entries per task
+            'calls_per_entry', [1, 4]); % Range for entry calls
     end
 
     % Initialize cell array to store successfully generated LQN models
@@ -31,40 +24,33 @@ function Random_LQN_generator_complex(num_LQNs, output_file, config)
     % Counter for successfully processed LQNs
     successful_count = 0;
 
-    i = 1; % Loop counter for total attempts
+    i = 0; % Loop counter for total attempts
     while successful_count < num_LQNs
-        try
-            % Step 1: Generate a random LQN model
-            LQN = generate_random_lqn(config);
 
-            % Step 2: Simulate the LQN using LQNS to calculate metrics
-            entry_metrics = simulate_lqn_lqns(LQN);
+            i = i + 1; 
+
+            lqn = generate_random_lqn(config);
+
+            entry_metrics = simulate_lqn_lqns(lqn);
+
 
             % Step 3: Store the metrics in the LQN struct
             LQN.entry_queue_lengths = entry_metrics.queue_lengths;
             LQN.entry_response_times = entry_metrics.response_times;
             LQN.entry_throughputs = entry_metrics.throughputs;
-
             % Step 4: Save the LQN model with metrics
             successful_count = successful_count + 1; % Increment successful count
             LQN_dataset{successful_count} = LQN; % Store the LQN
-
+            
             % Display progress
             disp(['Generated and simulated LQN ', num2str(successful_count), ' of ', num2str(num_LQNs)]);
 
-        catch ME
-            % Handle the error gracefully and continue to the next iteration
-            disp(['Error encountered while processing LQN ', num2str(i), ': ', ME.message]);
-            disp('Skipping this LQN and continuing...');
-        end
-
-        % Always increment the total attempt counter
-        i = i + 1;
     end
 
     % Save the dataset to a .mat file
     save(output_file, 'LQN_dataset');
     disp(['LQN dataset saved to ', output_file]);
+    disp(['Totally tried ', num2str(i)]);
 end
 
 
@@ -80,7 +66,7 @@ function LQN = generate_random_lqn(config)
 
     % Randomly determine the number of processors
     num_processors = randi(config.num_processors);
-    processor_attributes = randi(config.processor_multiplicity, num_processors, 1);  
+    processor_attributes = randi([1, 10], num_processors, 1);  % Processor Multiplicity 1-10
 
     % Initialize tasks and entries
     tasks = [];
@@ -102,10 +88,9 @@ function LQN = generate_random_lqn(config)
 
         for t = 1:num_tasks
             % Add task (including multiplicity as the third column)
-            think_time_mean = round(rand() * (config.task_think_time_mean(2) - config.task_think_time_mean(1)) + config.task_think_time_mean(1), 1);
-            think_time_scv = round(rand() * (config.task_think_time_scv(2) - config.task_think_time_scv(1)) + config.task_think_time_scv(1), 1);
-            task_multiplicity = randi(config.task_multiplicity); % Random multiplicity between 1 and 5
-            tasks = [tasks; think_time_mean,think_time_scv, task_multiplicity];
+            think_time = round(rand(1, 2) * 2.9 + 0.1, 1); % Mean think time and SCV: 0.1 to 3.0
+            multiplicity = randi([1, 5]); % Random multiplicity between 1 and 5
+            tasks = [tasks; think_time, multiplicity];
             processor_tasks = [processor_tasks; size(tasks, 1)];
 
             % Determine number of entries for this task
@@ -113,9 +98,8 @@ function LQN = generate_random_lqn(config)
 
             for e = 1:num_entries
                 % Add entry
-                service_time_mean = round(rand() * (config.entry_service_time_mean(2) - config.entry_service_time_mean(1)) + config.entry_service_time_mean(1), 1);
-                service_time_scv = round(rand() * (config.entry_service_time_scv(2) - config.entry_service_time_scv(1)) + config.entry_service_time_scv(1), 1);
-                entries = [entries; service_time_mean, service_time_scv];
+                service_time = round(rand(1, 2) * 2.9 + 0.1, 1); % Mean service time and SCV: 0.1 to 3.0
+                entries = [entries; service_time];
                 processor_entries = [processor_entries; size(entries, 1)];
 
                 % Map entry to the task
@@ -150,6 +134,12 @@ function LQN = generate_random_lqn(config)
             current_layer_call_limits(idx) = current_layer_call_limits(idx) + 1;
         end
 
+        % Determine the limit based on the length of next_layer_entries
+        limit = length(next_layer_entries);
+
+        % Replace values in current_layer_call_limits that exceed the limit
+        current_layer_call_limits(current_layer_call_limits > limit) = limit;
+
         % Ensure every entry in the next layer has at least one incoming call
         for e = 1:length(next_layer_entries)
             target_entry = next_layer_entries(e);
@@ -164,7 +154,6 @@ function LQN = generate_random_lqn(config)
             existing_edges(edge_key) = true;
 
             % Generate attributes for this call
-            probability = round(rand(1) * 0.9 + 0.1, 1); % Random probability: 0.1 to 1.0
             mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
             mean_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
             scv_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random SCV: 0.1 to 3.0
@@ -172,11 +161,11 @@ function LQN = generate_random_lqn(config)
             % Add the call to the edge list
             entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
             entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; ...
-                probability, mean_number_of_calls, mean_call_time, scv_call_time];
+                0, mean_number_of_calls, mean_call_time, scv_call_time];
 
             % Update the assigned call count and probability
             current_layer_assigned_calls(source_entry_idx) = current_layer_assigned_calls(source_entry_idx) + 1;
-            source_entry_probabilities(source_entry_idx) = source_entry_probabilities(source_entry_idx) + probability;
+            
         end
 
         % Add remaining calls for entries in the current layer that have not reached their limit
@@ -202,8 +191,7 @@ function LQN = generate_random_lqn(config)
 
                         % Break out of the loop if max retries are reached
                         if retry_count > max_retries
-                            warning('Exceeded maximum retries when finding unique target entry.');
-                            break;
+                            error('Exceeded maximum retries when finding unique target entry.');
                         end
 
                         % Retry with a new target entry
@@ -220,47 +208,82 @@ function LQN = generate_random_lqn(config)
                     existing_edges(edge_key) = true;
 
                     % Generate attributes for this call
-                    probability = round(rand(1) * 0.9 + 0.1, 1); % Random probability: 0.1 to 1.0
-                    mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
+                    mean_number_of_calls = round(rand(1) * 2.9 + 0.5, 1); % Random mean: 0.1 to 3.0
                     mean_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
                     scv_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random SCV: 0.1 to 3.0
 
                     % Add the call to the edge list
                     entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
                     entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; ...
-                        probability, mean_number_of_calls, mean_call_time, scv_call_time];
+                        0, mean_number_of_calls, mean_call_time, scv_call_time];
 
                     % Update the assigned call count and probability
                     current_layer_assigned_calls(e) = current_layer_assigned_calls(e) + 1;
-                    source_entry_probabilities(e) = source_entry_probabilities(e) + probability;
                 end
             end
         end
 
-        % Normalize probabilities for all source entries
+        
         for i = 1:length(current_layer_entries)
-            % Get all edges originating from this source entry
+            
             source_entry = current_layer_entries(i);
             edge_indices = find(entry_call_entry_edges(1, :) == source_entry);
+            
+            n = length(edge_indices); 
 
-            % Get the total assigned probability for this source entry
-            total_probability = sum(entry_call_entry_edge_attributes(edge_indices, 1));
+            max_tries = 50; % set maximum number of attempts
+            success = false;
 
-            if total_probability > 0
-                % Normalize probabilities for all edges from this source
-                normalized_probs = entry_call_entry_edge_attributes(edge_indices, 1) / total_probability;
+            for attempt = 1:max_tries
+                 % Generate n random integers from 1 to 9 (representing 0.1 to 0.9)
+                vals = randi([1,9], n, 1);
 
-                % Round probabilities to 1 decimal place
-                rounded_probs = round(normalized_probs, 1);
+                 % Normalize vals to sum exactly 10 (representing total sum = 1.0)
+                vals = round(vals * (10 / sum(vals)));
 
-                % Adjust to ensure the sum equals exactly 1.0
-                difference = 1.0 - sum(rounded_probs);
-                [~, max_idx] = max(rounded_probs); % Adjust the largest probability
-                rounded_probs(max_idx) = rounded_probs(max_idx) + difference;
+                 % Adjust sum to exactly 10
+                diff = 10 - sum(vals);
+                inner_attempts = 0;
 
-                % Assign the adjusted probabilities back
-                entry_call_entry_edge_attributes(edge_indices, 1) = rounded_probs;
+                while diff ~= 0 && inner_attempts < 100
+                                if diff > 0
+                                    % increase minimal value
+                                    [~, idx] = min(vals);
+                                    if vals(idx) < 9
+                                        vals(idx) = vals(idx) + 1;
+                                        diff = diff - 1;
+                                    else
+                                        break; % No possible increment
+                                    end
+                                elseif diff < 0
+                                    % decrease maximal value
+                                    [~, idx] = max(vals);
+                                    if vals(idx) > 1
+                                        vals(idx) = vals(idx) - 1;
+                                        diff = diff + 1;
+                                    else
+                                        break; % No possible decrement
+                                    end
+                                end
+                        inner_attempts = inner_attempts + 1;
+                 end
+
+                % Check if successful without zeros
+                if all(vals >= 1) && sum(vals) == 10
+                    success = true;
+                    break;
+                end
+             end
+
+            if ~success
+                error('Failed to generate valid numbers without zeros after %d attempts.', max_tries);
             end
+
+            rounded_probs = vals / 10;
+         
+                % Assign the adjusted probabilities back
+            entry_call_entry_edge_attributes(edge_indices, 1) = rounded_probs;
+            
         end
     end
 
@@ -369,15 +392,18 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 target_activities{end + 1} = call_activity{i}{j}; % Add to target activities
                 probabilities(end + 1) = probability; % Add to probabilities
             end
-
-            % Add OrFork precedence for this entry using the provided probabilities
-            tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
+            if isscalar(probabilities)
+                tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
+            else
+                % Add OrFork precedence for this entry using the provided probabilities
+                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
+            end
         end
     end
 
     % Solve the model using LQNS
     options = SolverLQNS.defaultOptions;
-    options.method = 'lqsim';
+    options.method = 'lqns';
     solver = SolverLQNS(model, options);
 
 
@@ -406,4 +432,5 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     entry_metrics.response_times = response_times;
     entry_metrics.throughputs = throughputs;
 end
+
 
