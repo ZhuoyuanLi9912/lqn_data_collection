@@ -1,4 +1,4 @@
-function Random_LQN_generator_complex(num_LQNs, output_file, config)
+function Random_LQN_generator_complex(num_LQNs, output_file, syc_call_only,config)
     % Generate a dataset of LQN models and their simulated metrics using LQNS
     %
     % Args:
@@ -11,6 +11,10 @@ function Random_LQN_generator_complex(num_LQNs, output_file, config)
 
     % Default configuration if not provided
     if nargin < 3
+        syc_call_only = false;
+    end
+
+    if nargin < 4
         config = struct( ...
             'num_processors', [3, 10], ...  % Range for number of processors
             'tasks_per_processor', [1, 4], ... % Range for tasks per processor
@@ -29,9 +33,9 @@ function Random_LQN_generator_complex(num_LQNs, output_file, config)
 
             i = i + 1; 
 
-            lqn = generate_random_lqn(config);
+            LQN = generate_random_lqn(config);
 
-            entry_metrics = simulate_lqn_lqns(lqn);
+            entry_metrics = simulate_lqn_lqns(LQN);
 
 
             % Step 3: Store the metrics in the LQN struct
@@ -88,8 +92,8 @@ function LQN = generate_random_lqn(config)
 
         for t = 1:num_tasks
             % Add task (including multiplicity as the third column)
-            think_time = round(rand(1, 2) * 2.9 + 0.1, 1); % Mean think time and SCV: 0.1 to 3.0
-            multiplicity = randi([1, 5]); % Random multiplicity between 1 and 5
+            think_time = round(rand(1) * 2.9 + 0.1, 1); % Mean think time: 0.1 to 3.0
+            multiplicity = randi([1, 10]); % Random multiplicity between 1 and 5
             tasks = [tasks; think_time, multiplicity];
             processor_tasks = [processor_tasks; size(tasks, 1)];
 
@@ -98,12 +102,10 @@ function LQN = generate_random_lqn(config)
 
             for e = 1:num_entries
                 % Add entry
-                service_time = round(rand(1, 2) * 2.9 + 0.1, 1); % Mean service time and SCV: 0.1 to 3.0
-                entries = [entries; service_time];
+                sync_call = randi([1,2]);
+                activity_pattern = randi([1,5]);
+                entries = [entries;sync_call,activity_pattern];
                 processor_entries = [processor_entries; size(entries, 1)];
-
-                % Map entry to the task
-                entry_on_task_edges = [entry_on_task_edges, [size(entries, 1); size(tasks, 1)]];
             end
 
             % Map task to the processor
@@ -122,7 +124,6 @@ function LQN = generate_random_lqn(config)
         % Precompute the number of outgoing calls for each entry in the current layer
         current_layer_call_limits = randi(config.calls_per_entry, size(current_layer_entries)); % Use the interval in config
         current_layer_assigned_calls = zeros(size(current_layer_entries)); % Track assigned calls
-        source_entry_probabilities = zeros(size(current_layer_entries)); % Track total probabilities per source entry
 
         % Track assigned edges to avoid duplicates
         existing_edges = containers.Map();
@@ -131,6 +132,9 @@ function LQN = generate_random_lqn(config)
         while sum(current_layer_call_limits - current_layer_assigned_calls) < length(next_layer_entries)
             % Increment the call limit for the entry with the fewest remaining slots
             [~, idx] = min(current_layer_call_limits - current_layer_assigned_calls);
+            if current_layer_call_limits(idx) == config.calls_per_entry(2)
+                error('Exceeded numbers of class per entry.');
+            end
             current_layer_call_limits(idx) = current_layer_call_limits(idx) + 1;
         end
 
