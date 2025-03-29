@@ -102,9 +102,13 @@ function LQN = generate_random_lqn(config)
 
             for e = 1:num_entries
                 % Add entry
-                sync_call = randi([1,2]);
+                if syc_call_only
+                    if_sync_call = 1;
+                else
+                    if_sync_call = randi([0,1]);
+                end
                 activity_pattern = randi([1,5]);
-                entries = [entries;sync_call,activity_pattern];
+                entries = [entries;if_sync_call,activity_pattern];
                 processor_entries = [processor_entries; size(entries, 1)];
             end
 
@@ -159,13 +163,11 @@ function LQN = generate_random_lqn(config)
 
             % Generate attributes for this call
             mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-            mean_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-            scv_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random SCV: 0.1 to 3.0
 
             % Add the call to the edge list
             entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
             entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; ...
-                0, mean_number_of_calls, mean_call_time, scv_call_time];
+                mean_number_of_calls];
 
             % Update the assigned call count and probability
             current_layer_assigned_calls(source_entry_idx) = current_layer_assigned_calls(source_entry_idx) + 1;
@@ -203,93 +205,24 @@ function LQN = generate_random_lqn(config)
                         edge_key = sprintf('%d-%d', source_entry, target_entry);
                     end
 
-                    % Skip this call if retries are exceeded
-                    if retry_count > max_retries
-                        continue;
-                    end
-
                     % Record the assigned edge
                     existing_edges(edge_key) = true;
 
                     % Generate attributes for this call
                     mean_number_of_calls = round(rand(1) * 2.9 + 0.5, 1); % Random mean: 0.1 to 3.0
-                    mean_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-                    scv_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random SCV: 0.1 to 3.0
 
                     % Add the call to the edge list
                     entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
-                    entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; ...
-                        0, mean_number_of_calls, mean_call_time, scv_call_time];
+                    entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; mean_number_of_calls];
 
                     % Update the assigned call count and probability
                     current_layer_assigned_calls(e) = current_layer_assigned_calls(e) + 1;
                 end
             end
         end
-
-        
-        for i = 1:length(current_layer_entries)
-            
-            source_entry = current_layer_entries(i);
-            edge_indices = find(entry_call_entry_edges(1, :) == source_entry);
-            
-            n = length(edge_indices); 
-
-            max_tries = 50; % set maximum number of attempts
-            success = false;
-
-            for attempt = 1:max_tries
-                 % Generate n random integers from 1 to 9 (representing 0.1 to 0.9)
-                vals = randi([1,9], n, 1);
-
-                 % Normalize vals to sum exactly 10 (representing total sum = 1.0)
-                vals = round(vals * (10 / sum(vals)));
-
-                 % Adjust sum to exactly 10
-                diff = 10 - sum(vals);
-                inner_attempts = 0;
-
-                while diff ~= 0 && inner_attempts < 100
-                                if diff > 0
-                                    % increase minimal value
-                                    [~, idx] = min(vals);
-                                    if vals(idx) < 9
-                                        vals(idx) = vals(idx) + 1;
-                                        diff = diff - 1;
-                                    else
-                                        break; % No possible increment
-                                    end
-                                elseif diff < 0
-                                    % decrease maximal value
-                                    [~, idx] = max(vals);
-                                    if vals(idx) > 1
-                                        vals(idx) = vals(idx) - 1;
-                                        diff = diff + 1;
-                                    else
-                                        break; % No possible decrement
-                                    end
-                                end
-                        inner_attempts = inner_attempts + 1;
-                 end
-
-                % Check if successful without zeros
-                if all(vals >= 1) && sum(vals) == 10
-                    success = true;
-                    break;
-                end
-             end
-
-            if ~success
-                error('Failed to generate valid numbers without zeros after %d attempts.', max_tries);
-            end
-
-            rounded_probs = vals / 10;
-         
-                % Assign the adjusted probabilities back
-            entry_call_entry_edge_attributes(edge_indices, 1) = rounded_probs;
-            
-        end
     end
+
+    % Create activity graphs for entry
 
     % Create the LQN struct
     LQN = struct();
@@ -300,6 +233,8 @@ function LQN = generate_random_lqn(config)
     LQN.entry_on_task_edges = entry_on_task_edges;
     LQN.entry_call_entry_edges = entry_call_entry_edges;
     LQN.entry_call_entry_edge_attributes = entry_call_entry_edge_attributes;
+
+
 end
 
 
