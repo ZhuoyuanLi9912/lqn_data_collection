@@ -1,5 +1,5 @@
 % Directory containing the .mat files
-dataDir = 'C:\GLQN\Matlab\data_collection\enter_level_random_lqn_data';  
+dataDir = "C:\GLQN\data";  
 
 % Name of the variable inside each .mat file
 varName = 'LQN_dataset';  
