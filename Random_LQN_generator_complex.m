@@ -33,7 +33,7 @@ function Random_LQN_generator_complex(num_LQNs, output_file, syc_call_only,confi
 
             i = i + 1; 
 
-            LQN = generate_random_lqn(config);
+            LQN = generate_random_lqn(syc_call_only, config);
 
             entry_metrics = simulate_lqn_lqns(LQN);
 
@@ -59,7 +59,7 @@ end
 
 
 
-function LQN = generate_random_lqn(config)
+function LQN = generate_random_lqn(syc_call_only, config)
     % Generate a random LQN model with processors, tasks, entries, and activities
     %
     % Args:
@@ -76,9 +76,14 @@ function LQN = generate_random_lqn(config)
     tasks = [];
     entries = [];
     task_on_processor_edges = [];
+    activities = [];
+    activity_on_entry_edges = [];
+    activity_flow_activity_edges = [];
+    activity_call_entry_edges = [];
     entry_on_task_edges = [];
     entry_call_entry_edges = [];
-    entry_call_entry_edge_attributes = [];
+    activity_flow_edge_attributes = [];
+    activity_call_entry_edge_attributes = [];
 
     % Step 1: Create Layers, Tasks, and Entries
     layer_entries = cell(num_processors, 1); % Track entries in each processor layer
@@ -161,13 +166,9 @@ function LQN = generate_random_lqn(config)
             edge_key = sprintf('%d-%d', source_entry, target_entry);
             existing_edges(edge_key) = true;
 
-            % Generate attributes for this call
-            mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-
             % Add the call to the edge list
             entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
-            entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; ...
-                mean_number_of_calls];
+
 
             % Update the assigned call count and probability
             current_layer_assigned_calls(source_entry_idx) = current_layer_assigned_calls(source_entry_idx) + 1;
@@ -208,21 +209,38 @@ function LQN = generate_random_lqn(config)
                     % Record the assigned edge
                     existing_edges(edge_key) = true;
 
-                    % Generate attributes for this call
-                    mean_number_of_calls = round(rand(1) * 2.9 + 0.5, 1); % Random mean: 0.1 to 3.0
-
                     % Add the call to the edge list
                     entry_call_entry_edges = [entry_call_entry_edges, [source_entry; target_entry]];
-                    entry_call_entry_edge_attributes = [entry_call_entry_edge_attributes; mean_number_of_calls];
 
                     % Update the assigned call count and probability
                     current_layer_assigned_calls(e) = current_layer_assigned_calls(e) + 1;
                 end
             end
-        end
-    end
 
-    % Create activity graphs for entry
+            % add activities
+            target_entries = find(entry_call_entry_edges(1, :) == source_entry);
+            switch entries(source_entry,2)
+                case {1}
+                    for i = 1:length(target_entries)
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        activity_on_entry_edges = [activity_on_entry_edges,size(activities,1);source_entry];
+                        if i~=1
+                            activity_flow_activity_edges = [activity_flow_activity_edges,size(activities,1)-1;size(activities,1)];
+                            activity_flow_edge_attributes = [activity_on_entry_edges;1];
+                        end
+                        mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
+                        activity_call_entry_edges = [activity_call_entry_edges, size(activities,1); target_entries(i)]
+                        activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];
+                    end
+                case {2}
+                    
+
+            end
+        
+        end        
+    end
 
     % Create the LQN struct
     LQN = struct();
