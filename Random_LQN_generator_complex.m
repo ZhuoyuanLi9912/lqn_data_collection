@@ -112,9 +112,10 @@ function LQN = generate_random_lqn(syc_call_only, config)
                 else
                     if_sync_call = randi([0,1]);
                 end
-                activity_pattern = randi([1,5]);
+                activity_pattern = randi([1,3]);
                 entries = [entries;if_sync_call,activity_pattern];
                 processor_entries = [processor_entries; size(entries, 1)];
+                entry_on_task_edges = [entry_on_task_edges, [size(entries, 1); size(tasks, 1)]];
             end
 
             % Map task to the processor
@@ -225,13 +226,13 @@ function LQN = generate_random_lqn(syc_call_only, config)
                         activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
                         activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
                         activities = [activities;activity_service_time_mean,activity_service_time_scv];
-                        activity_on_entry_edges = [activity_on_entry_edges,size(activities,1);source_entry];
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
                         if i~=1
-                            activity_flow_activity_edges = [activity_flow_activity_edges,size(activities,1)-1;size(activities,1)];
-                            activity_flow_edge_attributes = [activity_on_entry_edges;1];
+                            activity_flow_activity_edges = [activity_flow_activity_edges,[size(activities,1)-1;size(activities,1)]];
+                            activity_flow_edge_attributes = [activity_flow_edge_attributes;1];
                         end
                         mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-                        activity_call_entry_edges = [activity_call_entry_edges, size(activities,1); target_entries(i)];
+                        activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
                         activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];
                     end
                 case {2}
@@ -239,12 +240,41 @@ function LQN = generate_random_lqn(syc_call_only, config)
                         activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
                         activities = [activities;activity_service_time_mean,activity_service_time_scv];
                         prime_activities = size(activities,1);
-                        activity_on_entry_edges = [activity_on_entry_edges,size(activities,1);source_entry];
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
                     for i = 1:length(target_entries)
                         activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
                         activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
                         activities = [activities;activity_service_time_mean,activity_service_time_scv];
-                        
+                        activity_flow_activity_edges = [activity_flow_activity_edges,[prime_activities;size(activities,1)]];
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
+                        mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
+                        activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
+                        activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];
+                    end
+                        activity_flow_edge_attributes = [activity_flow_edge_attributes;generateOnePlaceDecimalsProbability(length(target_entries))]; 
+                case {3}
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        prime_activities = size(activities,1);
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        last_activities = size(activities,1);
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
+                    for i = 1:length(target_entries)
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
+                        activity_flow_activity_edges = [activity_flow_activity_edges,[prime_activities;size(activities,1)]];
+                        activity_flow_edge_attributes = [activity_flow_edge_attributes;1];
+                        activity_flow_activity_edges = [activity_flow_activity_edges,[last_activities;size(activities,1)]];
+                        activity_flow_edge_attributes = [activity_flow_edge_attributes;1];
+                        mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
+                        activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
+                        activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];                        
                     end
                         
 
@@ -261,9 +291,12 @@ function LQN = generate_random_lqn(syc_call_only, config)
     LQN.task_on_processor_edges = task_on_processor_edges;
     LQN.entry_on_task_edges = entry_on_task_edges;
     LQN.entry_call_entry_edges = entry_call_entry_edges;
-    LQN.entry_call_entry_edge_attributes = entry_call_entry_edge_attributes;
-
-
+    LQN.activities = activities;
+    LQN.activity_flow_activity_edges = activity_flow_activity_edges;
+    LQN.activity_call_entry_edges = activity_call_entry_edges;
+    LQN.activity_on_entry_edges = activity_on_entry_edges;
+    LQN.activity_flow_edge_attributes = activity_flow_edge_attributes;
+    LQN.activity_call_entry_edge_attributes = activity_call_entry_edge_attributes;
 end
 
 
@@ -294,7 +327,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
 
     % Create tasks
     for i = 1:size(LQN.task_attributes, 1)
-        multiplicity = LQN.task_attributes(i, 3); % Extract multiplicity
+        multiplicity = LQN.task_attributes(i, 2); % Extract multiplicity
         if LQN.task_on_processor_edges(2, i) == 1
             sched_strategy = SchedStrategy.REF; % First processor
         else
@@ -302,17 +335,21 @@ function entry_metrics = simulate_lqn_lqns(LQN)
         end
 
         tasks{i} = Task(model, ['T', num2str(i)], multiplicity, sched_strategy).on(processors{LQN.task_on_processor_edges(2, i)});
-        tasks{i}.setThinkTime(APH.fitMeanAndSCV(LQN.task_attributes(i, 1), LQN.task_attributes(i, 2)));
+        tasks{i}.setThinkTime(Exp.fitMean(LQN.task_attributes(i, 1)));
     end
 
     % Create entries and their primary activities
     for i = 1:size(LQN.entry_attributes, 1)
         task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
         entries{i} = Entry(model, ['E', num2str(i)]).on(tasks{task_id});
-
-        % Create primary activity for this entry
-        activities{i} = Activity(model, ['A', num2str(i)], APH.fitMeanAndSCV(LQN.entry_attributes(i, 1), LQN.entry_attributes(i, 2))) ...
-            .on(tasks{task_id}).boundTo(entries{i});
+        entry_activity = LQN.activity_on_entry_edges(1, LQN.activity_on_entry_edges(2,:) == i); 
+        switch LQN.entry_attributes(i,2)
+            case {1}
+                for e = 1:size(entry_activity)
+                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),1))).on(task_id).synchCall
+                end
+        end
     end
 
     % Step 2: Add calls between entries
