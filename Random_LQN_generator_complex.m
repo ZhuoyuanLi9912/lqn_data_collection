@@ -231,11 +231,22 @@ function LQN = generate_random_lqn(syc_call_only, config)
                             activity_flow_edge_attributes = [activity_on_entry_edges;1];
                         end
                         mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
-                        activity_call_entry_edges = [activity_call_entry_edges, size(activities,1); target_entries(i)]
+                        activity_call_entry_edges = [activity_call_entry_edges, size(activities,1); target_entries(i)];
                         activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];
                     end
                 case {2}
-                    
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        prime_activities = size(activities,1);
+                        activity_on_entry_edges = [activity_on_entry_edges,size(activities,1);source_entry];
+                    for i = 1:length(target_entries)
+                        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+                        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+                        
+                    end
+                        
 
             end
         
