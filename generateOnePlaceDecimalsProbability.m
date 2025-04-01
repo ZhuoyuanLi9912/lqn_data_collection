@@ -24,6 +24,6 @@ function decimals = generateOnePlaceDecimalsProbability(n)
     parts = [cutPoints, total] - [0, cutPoints];
 
     % Convert the parts to one-place decimals by dividing by 10
-    decimals = (parts / 10)';
+    decimals = (parts / 10);
 
 end

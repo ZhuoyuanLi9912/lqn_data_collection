@@ -16,7 +16,7 @@ function Random_LQN_generator_complex(num_LQNs, output_file, syc_call_only,confi
 
     if nargin < 4
         config = struct( ...
-            'num_processors', [3, 10], ...  % Range for number of processors
+            'num_processors', [3, 4], ...  % Range for number of processors
             'tasks_per_processor', [1, 4], ... % Range for tasks per processor
             'entries_per_task', [1, 3], ... % Range for entries per task
             'calls_per_entry', [1, 4]); % Range for entry calls
@@ -84,6 +84,7 @@ function LQN = generate_random_lqn(syc_call_only, config)
     entry_call_entry_edges = [];
     activity_flow_edge_attributes = [];
     activity_call_entry_edge_attributes = [];
+    or_join_entry_probability={};
 
     % Step 1: Create Layers, Tasks, and Entries
     layer_entries = cell(num_processors, 1); % Track entries in each processor layer
@@ -132,7 +133,25 @@ function LQN = generate_random_lqn(syc_call_only, config)
         next_layer_entries = layer_entries{p + 1};
 
         % Precompute the number of outgoing calls for each entry in the current layer
-        current_layer_call_limits = randi(config.calls_per_entry, size(current_layer_entries)); % Use the interval in config
+        min_calls = config.calls_per_entry(1);
+        max_calls = config.calls_per_entry(2);
+        
+        % Initialize: random calls from min to max for all
+        current_layer_call_limits = randi([min_calls, max_calls], size(current_layer_entries));
+        
+        % Get types of current layer entries
+        entry_types = entries(current_layer_entries, 2);
+        
+        % Find indices of type 2 or 3
+        special_idx = entry_types == 2 | entry_types == 3;
+        
+        % If 1 is not allowed, and min_calls == 1, we need to avoid it
+        if min_calls == 1 && max_calls > 1
+            % Re-roll for special types using [2, max_calls]
+            current_layer_call_limits(special_idx) = randi([2, max_calls], sum(special_idx), 1);
+        elseif min_calls == 1 && max_calls == 1
+            error('Cannot avoid 1 for types 2 and 3 if config.calls_per_entry is [1, 1].');
+        end     
         current_layer_assigned_calls = zeros(size(current_layer_entries)); % Track assigned calls
 
         % Track assigned edges to avoid duplicates
@@ -251,7 +270,8 @@ function LQN = generate_random_lqn(syc_call_only, config)
                         activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
                         activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];
                     end
-                        activity_flow_edge_attributes = [activity_flow_edge_attributes;generateOnePlaceDecimalsProbability(length(target_entries))]; 
+                        or_join_entry_probability{source_entry} = generateOnePlaceDecimalsProbability(length(target_entries));
+                        activity_flow_edge_attributes = [activity_flow_edge_attributes;or_join_entry_probability{source_entry}']; 
                 case {3}
                         activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
                         activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
@@ -270,7 +290,7 @@ function LQN = generate_random_lqn(syc_call_only, config)
                         activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
                         activity_flow_activity_edges = [activity_flow_activity_edges,[prime_activities;size(activities,1)]];
                         activity_flow_edge_attributes = [activity_flow_edge_attributes;1];
-                        activity_flow_activity_edges = [activity_flow_activity_edges,[last_activities;size(activities,1)]];
+                        activity_flow_activity_edges = [activity_flow_activity_edges,[size(activities,1);last_activities]];
                         activity_flow_edge_attributes = [activity_flow_edge_attributes;1];
                         mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
                         activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
@@ -297,6 +317,7 @@ function LQN = generate_random_lqn(syc_call_only, config)
     LQN.activity_on_entry_edges = activity_on_entry_edges;
     LQN.activity_flow_edge_attributes = activity_flow_edge_attributes;
     LQN.activity_call_entry_edge_attributes = activity_call_entry_edge_attributes;
+    LQN.or_join_entry_probability = or_join_entry_probability;
 end
 
 
@@ -343,66 +364,53 @@ function entry_metrics = simulate_lqn_lqns(LQN)
         task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
         entries{i} = Entry(model, ['E', num2str(i)]).on(tasks{task_id});
         entry_activity = LQN.activity_on_entry_edges(1, LQN.activity_on_entry_edges(2,:) == i); 
+        called_entries = LQN.entry_call_entry_edges(2, LQN.entry_call_entry_edges(1, :) == i);
         switch LQN.entry_attributes(i,2)
             case {1}
                 for e = 1:size(entry_activity)
                     activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
-                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),1))).on(task_id).synchCall
-                end
-        end
-    end
-
-    % Step 2: Add calls between entries
-    call_activity = cell(size(LQN.entry_attributes, 1), 1); % Store call activities for each entry
-    global_call_counter = 1; % Initialize a global call counter
-
-    for i = 1:size(LQN.entry_attributes, 1)
-        % Check if this entry makes any calls
-        outgoing_call_indices = find(LQN.entry_call_entry_edges(1, :) == i); % Find all calls originating from this entry
-        task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
-        is_top_layer_task = (LQN.task_on_processor_edges(2, task_id) == 1); % Check if this task is on the top layer
-
-        if isempty(outgoing_call_indices) % Bottom layer: no calls
-            activities{i}.repliesTo(entries{i});
-        else
-            % This entry makes calls: create call activities and an OrFork
-            target_activities = {};
-            probabilities = [];
-            call_activity{i} = cell(length(outgoing_call_indices), 1); % Initialize call activities for this entry
-
-            for j = 1:length(outgoing_call_indices)
-                call_index = outgoing_call_indices(j);
-                target_entry = LQN.entry_call_entry_edges(2, call_index); % Target entry index
-                probability = LQN.entry_call_entry_edge_attributes(call_index, 1); % Call probability
-                mean_number_of_calls = LQN.entry_call_entry_edge_attributes(call_index, 2); % Mean number of calls
-                mean_call_time = LQN.entry_call_entry_edge_attributes(call_index, 3); % Mean call time
-                scv_call_time = LQN.entry_call_entry_edge_attributes(call_index, 4); % SCV of call time
-
-                % Create a call activity with a unique name and appropriate attributes
-                call_name = ['Call', num2str(global_call_counter)];
-                if is_top_layer_task
-                    % Do not include repliesTo for top-layer tasks
-                    call_activity{i}{j} = Activity(model, call_name, APH.fitMeanAndSCV(mean_call_time, scv_call_time)) ...
-                        .on(tasks{task_id}).synchCall(entries{target_entry}, mean_number_of_calls);
-                else
-                    % Include repliesTo for other tasks
-                    call_activity{i}{j} = Activity(model, call_name, APH.fitMeanAndSCV(mean_call_time, scv_call_time)) ...
-                        .on(tasks{task_id}).synchCall(entries{target_entry}, mean_number_of_calls).repliesTo(entries{i});
+                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id).synchCall(called_entries(e));
+                    if e == 1
+                        activities{i}{e}.boundTo(entries{i});
+                    end
+                    if e == size(entry_activity)
+                        activities{i}{e}.repliesTo(entries{i});
+                    end
+                    if e ~=1
+                        tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}{e-1}, activities{i}{e}));
+                    end
                 end
 
-                % Increment the global call counter
-                global_call_counter = global_call_counter + 1;
-
-                % Store the call activity and its probability
-                target_activities{end + 1} = call_activity{i}{j}; % Add to target activities
-                probabilities(end + 1) = probability; % Add to probabilities
-            end
-            if isscalar(probabilities)
-                tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
-            else
-                % Add OrFork precedence for this entry using the provided probabilities
-                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
-            end
+            case {2}
+                target_activities = {};
+                for e = 1:size(entry_activity)
+                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id);
+                    if e == 1
+                        activities{i}{e}.boundTo(entries{i});
+                    end
+                    if e ~= 1
+                        tasks{task_id}.synchCall(called_entries(e-1)).repliesTo(entries{i});
+                        target_activities{end+1} = activities{i}{e};
+                    end
+                end
+                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}{1}, target_activities, LQN.or_join_entry_probability{i}));
+            case {3}
+                target_activities = {};
+                for e = 1:size(entry_activity)
+                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id);
+                    if e == 1
+                        activities{i}{e}.boundTo(entries{i});
+                    end
+                    if e == 2
+                        activities{i}{e}.repliesTo(entries{i});
+                    end
+                    if e > 2
+                        tasks{task_id}.synchCall(called_entries(e-2)).repliesTo(entries{i});
+                        target_activities{end+1} = activities{i}{e};
+                    end
+                end
         end
     end
 
