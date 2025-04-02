@@ -16,10 +16,10 @@ function Random_LQN_generator_complex(num_LQNs, output_file, syc_call_only,confi
 
     if nargin < 4
         config = struct( ...
-            'num_processors', [3, 4], ...  % Range for number of processors
-            'tasks_per_processor', [1, 4], ... % Range for tasks per processor
-            'entries_per_task', [1, 3], ... % Range for entries per task
-            'calls_per_entry', [1, 4]); % Range for entry calls
+            'num_processors', [2, 2], ...  % Range for number of processors
+            'tasks_per_processor', [1, 1], ... % Range for tasks per processor
+            'entries_per_task', [1, 1], ... % Range for entries per task
+            'calls_per_entry', [1, 1]); % Range for entry calls
     end
 
     % Initialize cell array to store successfully generated LQN models
@@ -113,7 +113,7 @@ function LQN = generate_random_lqn(syc_call_only, config)
                 else
                     if_sync_call = randi([0,1]);
                 end
-                activity_pattern = randi([1,3]);
+                activity_pattern = randi([1,1]);
                 entries = [entries;if_sync_call,activity_pattern];
                 processor_entries = [processor_entries; size(entries, 1)];
                 entry_on_task_edges = [entry_on_task_edges, [size(entries, 1); size(tasks, 1)]];
@@ -150,7 +150,7 @@ function LQN = generate_random_lqn(syc_call_only, config)
             % Re-roll for special types using [2, max_calls]
             current_layer_call_limits(special_idx) = randi([2, max_calls], sum(special_idx), 1);
         elseif min_calls == 1 && max_calls == 1
-            error('Cannot avoid 1 for types 2 and 3 if config.calls_per_entry is [1, 1].');
+            %error('Cannot avoid 1 for types 2 and 3 if config.calls_per_entry is [1, 1].');
         end     
         current_layer_assigned_calls = zeros(size(current_layer_entries)); % Track assigned calls
 
@@ -238,7 +238,9 @@ function LQN = generate_random_lqn(syc_call_only, config)
             end
 
             % add activities
-            target_entries = find(entry_call_entry_edges(1, :) == source_entry);
+            target_entries = entry_call_entry_edges(2, entry_call_entry_edges(1, :) == source_entry);
+
+
             switch entries(source_entry,2)
                 case {1}
                     for i = 1:length(target_entries)
@@ -296,13 +298,19 @@ function LQN = generate_random_lqn(syc_call_only, config)
                         activity_call_entry_edges = [activity_call_entry_edges, [size(activities,1); target_entries(i)]];
                         activity_call_entry_edge_attributes = [activity_call_entry_edge_attributes; mean_number_of_calls];                        
                     end
-                        
-
-            end
-        
+            end      
         end        
     end
 
+    % add activity to last layer
+    last_layer_entry = layer_entries{num_processors};
+    for e = 1:length(last_layer_entry)
+        source_entry = last_layer_entry(e);
+        activity_service_time_mean = round(0.1 + (3 - 0.1) * rand(1),1);
+        activity_service_time_scv = round(0.1 + (3 - 0.1) * rand(1),1);
+        activities = [activities;activity_service_time_mean,activity_service_time_scv];
+        activity_on_entry_edges = [activity_on_entry_edges,[size(activities,1);source_entry]];
+    end
     % Create the LQN struct
     LQN = struct();
     LQN.processor_attributes = processor_attributes;
@@ -362,61 +370,90 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     % Create entries and their primary activities
     for i = 1:size(LQN.entry_attributes, 1)
         task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
+        is_on_processor_1 = LQN.task_on_processor_edges(2, LQN.task_on_processor_edges(1,:) == task_id) == 1;
         entries{i} = Entry(model, ['E', num2str(i)]).on(tasks{task_id});
+    end
+    for i = 1:size(LQN.entry_attributes, 1)
         entry_activity = LQN.activity_on_entry_edges(1, LQN.activity_on_entry_edges(2,:) == i); 
         called_entries = LQN.entry_call_entry_edges(2, LQN.entry_call_entry_edges(1, :) == i);
-        switch LQN.entry_attributes(i,2)
-            case {1}
-                for e = 1:size(entry_activity)
-                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
-                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id).synchCall(called_entries(e));
-                    if e == 1
-                        activities{i}{e}.boundTo(entries{i});
+      
+        if isempty(called_entries)
+            activities{i}{1} = Activity(model,['A',num2str(entry_activity(1))], ...
+                            APH.fitMeanAndSCV(LQN.activities(entry_activity(1),1),LQN.activities(entry_activity(1),2))).on(tasks{task_id}).boundTo(entries{i}).repliesTo(entries{i});
+        else
+            switch LQN.entry_attributes(i,2)
+                case {1}
+                    for e = 1:size(entry_activity,2)
+                        activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                            APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(tasks{task_id});
+                        if LQN.entry_attributes(called_entries(e),1) == 1
+                            activities{i}{e}.synchCall(entries{called_entries(e)});
+                        else
+                            activities{i}{e}.asynchCall(entries{called_entries(e)});
+                        end
+                        if e == 1
+                            activities{i}{e}.boundTo(entries{i});
+                        end
+                        if e == size(entry_activity,2) && ~is_on_processor_1
+                            activities{i}{e}.repliesTo(entries{i});
+                        end
+                        if e ~= 1
+                            tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}{e-1}, activities{i}{e}));
+                        end
                     end
-                    if e == size(entry_activity)
-                        activities{i}{e}.repliesTo(entries{i});
+    
+                case {2}
+                    target_activities = {};
+                    for e = 1:size(entry_activity,2)
+                        activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                            APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(tasks{task_id});
+                        if e == 1
+                            activities{i}{e}.boundTo(entries{i});
+                        end
+                        if e ~= 1 
+                            target_activities{end+1} = activities{i}{e};
+                            
+                            if LQN.entry_attributes(called_entries(e-1),1) == 1
+                                activities{i}{e}.synchCall(entries{called_entries(e-1)});
+                            else
+                                activities{i}{e}.asynchCall(entries{called_entries(e-1)});
+                            end
+                            
+                            if ~is_on_processor_1
+                                activities{i}{e}.repliesTo(entries{i});
+                            end
+                        end
                     end
-                    if e ~=1
-                        tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}{e-1}, activities{i}{e}));
+                    tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}{1}, target_activities, LQN.or_join_entry_probability{i}));
+                case {3}
+                    target_activities = {};
+                    for e = 1:size(entry_activity,2)
+                        activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
+                            APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(tasks{task_id});
+                        if e == 1
+                            activities{i}{e}.boundTo(entries{i});
+                        end
+                        if e == 2 && ~is_on_processor_1
+                            activities{i}{e}.repliesTo(entries{i});
+                        end
+                        if e > 2
+                            target_activities{end+1} = activities{i}{e};
+                            if LQN.entry_attributes(called_entries(e-2),1) == 1
+                                activities{i}{e}.synchCall(entries{called_entries(e-2)});
+                            else
+                                activities{i}{e}.asynchCall(entries{called_entries(e-2)});
+                            end   
+                        end
                     end
-                end
-
-            case {2}
-                target_activities = {};
-                for e = 1:size(entry_activity)
-                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
-                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id);
-                    if e == 1
-                        activities{i}{e}.boundTo(entries{i});
-                    end
-                    if e ~= 1
-                        tasks{task_id}.synchCall(called_entries(e-1)).repliesTo(entries{i});
-                        target_activities{end+1} = activities{i}{e};
-                    end
-                end
-                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}{1}, target_activities, LQN.or_join_entry_probability{i}));
-            case {3}
-                target_activities = {};
-                for e = 1:size(entry_activity)
-                    activities{i}{e} = Activity(model,['A',num2str(entry_activity(e))], ...
-                        APH.fitMeanAndSCV(LQN.activities(entry_activity(e),1),LQN.activities(entry_activity(e),2))).on(task_id);
-                    if e == 1
-                        activities{i}{e}.boundTo(entries{i});
-                    end
-                    if e == 2
-                        activities{i}{e}.repliesTo(entries{i});
-                    end
-                    if e > 2
-                        tasks{task_id}.synchCall(called_entries(e-2)).repliesTo(entries{i});
-                        target_activities{end+1} = activities{i}{e};
-                    end
-                end
+                    tasks{task_id}.addPrecedence(ActivityPrecedence.AndFork(activities{i}{1}, target_activities));
+                    tasks{task_id}.addPrecedence(ActivityPrecedence.AndJoin(target_activities, activities{i}{2}));
+            end
         end
     end
 
     % Solve the model using LQNS
     options = SolverLQNS.defaultOptions;
-    options.method = 'lqns';
+    options.method = 'lqsim';
     solver = SolverLQNS(model, options);
 
 

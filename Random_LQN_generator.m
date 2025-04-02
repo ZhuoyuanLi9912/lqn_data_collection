@@ -12,10 +12,10 @@ function Random_LQN_generator(num_LQNs, output_file, config)
     % Default configuration if not provided
     if nargin < 3
         config = struct( ...
-            'num_processors', [3, 10], ...  % Range for number of processors
-            'tasks_per_processor', [1, 4], ... % Range for tasks per processor
-            'entries_per_task', [1, 3], ... % Range for entries per task
-            'calls_per_entry', [1, 4]); % Range for entry calls
+            'num_processors', [3, 5], ...  % Range for number of processors
+            'tasks_per_processor', [1, 2], ... % Range for tasks per processor
+            'entries_per_task', [1, 2], ... % Range for entries per task
+            'calls_per_entry', [1, 3]); % Range for entry calls
     end
 
     % Initialize cell array to store successfully generated LQN models
