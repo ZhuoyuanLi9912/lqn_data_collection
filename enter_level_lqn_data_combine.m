@@ -1,5 +1,5 @@
 % Directory containing the .mat files
-dataDir = "C:\GLQN\data";  
+dataDir = "C:\GLQN\data\small_model";  
 
 % Name of the variable inside each .mat file
 varName = 'LQN_dataset';  
@@ -11,7 +11,7 @@ outputFileName = 'overall.mat';
 files = dir(fullfile(dataDir, '*.mat'));
 
 % Initialize result cell array
-combinedCell = {};
+LQN_dataset = {};  % Use the target variable name directly
 
 % Loop through each file
 for k = 1:length(files)
@@ -23,9 +23,9 @@ for k = 1:length(files)
     % Load specific variable
     data = load(filePath, varName);
     
-    % Concatenate
-    combinedCell = [combinedCell; data.(varName)];
+    % Concatenate into LQN_dataset
+    LQN_dataset = [LQN_dataset; data.(varName)];
 end
 
-% Save the combined cell array back to the same folder
-save(fullfile(dataDir, outputFileName), 'combinedCell');
+% Save using the correct variable name
+save(fullfile(dataDir, outputFileName), 'LQN_dataset');
