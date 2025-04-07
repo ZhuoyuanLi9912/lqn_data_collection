@@ -12,10 +12,10 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
     % Default configuration if not provided
     if nargin < 3
         config = struct( ...
-            'num_processors', [3, 5], ...  % Range for number of processors
-            'tasks_per_processor', [1, 2], ... % Range for tasks per processor
-            'entries_per_task', [1, 2], ... % Range for entries per task
-            'calls_per_entry', [1, 3]); % Range for entry calls
+            'num_processors', [3, 10], ...
+            'tasks_per_processor', [1, 4], ...
+            'entries_per_task', [1, 3], ...
+            'calls_per_entry', [1, 4]);
     end
 
     % Initialize cell array to store successfully generated LQN models
@@ -23,86 +23,45 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
 
     % Counter for successfully processed LQNs
     successful_count = 0;
-
     i = 0; % Loop counter for total attempts
+
     while successful_count < num_LQNs
-       try
-           i = i + 1; 
-           % Step 1: Generate a random LQN model
-            % Step 1: Generate a random LQN model with timeout (1s)
-            lqn_finished = false;
-            lqn_timer = tic;
+        try
+            i = i + 1;
 
-            LQN_future = parfeval(@generate_random_lqn, 1, config);
+            % Step 1: Generate LQN (no timeout needed in serial)
+            LQN = generate_random_lqn(config);
 
-            while toc(lqn_timer) < 1
-                if strcmp(LQN_future.State, 'finished')
-                    LQN = fetchOutputs(LQN_future);
-                    lqn_finished = true;
-                    break;
-                end
-                pause(0.05); % small delay to avoid busy waiting
-            end
+            % Step 2: Simulate the LQN using LQNS (no timeout)
+            entry_metrics = simulate_lqn_lqns(LQN);
 
-            if ~lqn_finished
-                cancel(LQN_future);
-                disp('LQN generation exceeded 1 second, skipping iteration...');
-                i = i + 1;
-                continue;
-            end
-
-            % Step 2: Simulate the LQN using LQNS to calculate metrics with timeout
-            simulation_finished = false;
-            simulation_timer = tic;
-
-            % Run simulation with timeout check
-            entry_metrics = [];
-            simulation_future = parfeval(@simulate_lqn_lqns, 1, LQN);
-
-            while toc(simulation_timer) < 8
-                if strcmp(simulation_future.State, 'finished')
-                    entry_metrics = fetchOutputs(simulation_future);
-                    simulation_finished = true;
-                    break;
-                end
-                pause(0.1); % small delay to avoid busy waiting
-            end
-
-            if ~simulation_finished
-                cancel(simulation_future);
-                disp('Simulation exceeded 8 seconds, skipping iteration...');
-                
-                continue;
-            end
-
-            % Step 3: Store the metrics in the LQN struct
+            % Step 3: Attach metrics to LQN struct
             LQN.entry_queue_lengths = entry_metrics.queue_lengths;
             LQN.entry_response_times = entry_metrics.response_times;
             LQN.entry_throughputs = entry_metrics.throughputs;
-
             LQN.entry_queue_lengths_lqns = entry_metrics.queue_lengths_lqns;
             LQN.entry_response_times_lqns = entry_metrics.response_times_lqns;
-            LQN.entry_throughputs_lqns = entry_metrics.throughputs_lqns;
-
+            LQN.entry_throughput_lqns = entry_metrics.throughputs_lqns;
             LQN.queue_lengths_mare = entry_metrics.queue_lengths_mare;
+            LQN.throughput_mare = entry_metrics.throughput_mare;
             LQN.response_times_mare = entry_metrics.response_times_mare;
-            LQN.throughputs_mare = entry_metrics.throughputs_mare;
+
+            % Skip if invalid
             if any(isnan(LQN.entry_response_times))
-                continue
+                continue;
             end
-            % Step 4: Save the LQN model with metrics
-            successful_count = successful_count + 1; % Increment successful count
-            LQN_dataset{successful_count} = LQN; % Store the LQN
-            
-            % Display progress
-            disp(['Generated and simulated LQN ', num2str(successful_count), ' of ', num2str(num_LQNs)]);
+
+            % Step 4: Save LQN
+            successful_count = successful_count + 1;
+            LQN_dataset{successful_count} = LQN;
+
+            disp(['Generated and simulated LQN ', num2str(successful_count), ...
+                  ' of ', num2str(num_LQNs)]);
 
         catch ME
-            % Handle the error gracefully and continue to the next iteration
             disp(['Error encountered while processing LQN ', num2str(i), ': ', ME.message]);
             disp('Skipping this LQN and continuing...');
-       end
-
+        end
     end
 
     % Save the dataset to a .mat file
@@ -449,14 +408,15 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 % Store the call activity and its probability
                 target_activities{end + 1} = call_activity{i}{j}; % Add to target activities
                 probabilities(end + 1) = probability; % Add to probabilities
+                
             end
             if isscalar(probabilities)
                 tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
             else
                 % Add OrFork precedence for this entry using the provided probabilities
-                if (sum(probabilities)~=1)
-                    display('not 1 it is', num2str(probabilities))
-                end
+
+                probabilities = round(probabilities, 1);
+
                 tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
             end
         end
@@ -511,11 +471,13 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     throughputs_lqns = table2array(entry_rows_lqns(:, 7));    % 7th column: throughput
     
     % Store metrics in a struct
+
     entry_metrics.queue_lengths_lqns = queue_lengths_lqns;
     entry_metrics.response_times_lqns = response_times_lqns;
     entry_metrics.throughputs_lqns = throughputs_lqns;
-    
-    entry_metrics.queue_lengths_mare = mean(abs(queue_lengths - queue_lengths_lqns) ./ abs(queue_lengths+1e8));
-    entry_metrics.response_times_mare = mean(abs(response_times - response_times_lqns) ./ abs(response_times+1e8));
-    entry_metrics.throughputs_mare = mean(abs(throughputs - throughputs_lqns) ./ abs(throughputs+1e8));
+
+    entry_metrics.queue_lengths_mare = mean(abs(queue_lengths - queue_lengths_lqns) ./ abs(queue_lengths+1e-8));
+    entry_metrics.response_times_mare = mean(abs(response_times - response_times_lqns) ./ abs(response_times+1e-8));
+    entry_metrics.throughputs_mare = mean(abs(throughputs - throughputs_lqns) ./ abs(throughputs+1e-8));
+
 end
