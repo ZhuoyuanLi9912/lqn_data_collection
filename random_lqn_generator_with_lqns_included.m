@@ -12,10 +12,10 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
     % Default configuration if not provided
     if nargin < 3
         config = struct( ...
-            'num_processors', [3, 10], ...  % Range for number of processors
-            'tasks_per_processor', [1, 4], ... % Range for tasks per processor
-            'entries_per_task', [1, 3], ... % Range for entries per task
-            'calls_per_entry', [1, 4]); % Range for entry calls
+            'num_processors', [3, 5], ...  % Range for number of processors
+            'tasks_per_processor', [1, 2], ... % Range for tasks per processor
+            'entries_per_task', [1, 2], ... % Range for entries per task
+            'calls_per_entry', [1, 3]); % Range for entry calls
     end
 
     % Initialize cell array to store successfully generated LQN models
@@ -50,7 +50,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
                 i = i + 1;
                 continue;
             end
-            simulate_lqn_lqns(LQN)
+
             % Step 2: Simulate the LQN using LQNS to calculate metrics with timeout
             simulation_finished = false;
             simulation_timer = tic;
@@ -59,7 +59,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
             entry_metrics = [];
             simulation_future = parfeval(@simulate_lqn_lqns, 1, LQN);
 
-            while toc(simulation_timer) < 10
+            while toc(simulation_timer) < 8
                 if strcmp(simulation_future.State, 'finished')
                     entry_metrics = fetchOutputs(simulation_future);
                     simulation_finished = true;
@@ -70,7 +70,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
 
             if ~simulation_finished
                 cancel(simulation_future);
-                disp('Simulation exceeded 10 seconds, skipping iteration...');
+                disp('Simulation exceeded 8 seconds, skipping iteration...');
                 
                 continue;
             end
@@ -79,13 +79,14 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
             LQN.entry_queue_lengths = entry_metrics.queue_lengths;
             LQN.entry_response_times = entry_metrics.response_times;
             LQN.entry_throughputs = entry_metrics.throughputs;
+
             LQN.entry_queue_lengths_lqns = entry_metrics.queue_lengths_lqns;
             LQN.entry_response_times_lqns = entry_metrics.response_times_lqns;
-            LQN.entry_throughput_lqns = entry_metrics.throughputs_lqns;
+            LQN.entry_throughputs_lqns = entry_metrics.throughputs_lqns;
+
             LQN.queue_lengths_mare = entry_metrics.queue_lengths_mare;
-            LQN.throughput_mare = entry_metrics.throughput_mare;
             LQN.response_times_mare = entry_metrics.response_times_mare;
-            
+            LQN.throughputs_mare = entry_metrics.throughputs_mare;
             if any(isnan(LQN.entry_response_times))
                 continue
             end
@@ -453,12 +454,15 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
             else
                 % Add OrFork precedence for this entry using the provided probabilities
+                if (sum(probabilities)~=1)
+                    display('not 1 it is', num2str(probabilities))
+                end
                 tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
             end
         end
     end
 
-    % Solve the model using LQSIM
+    % Solve the model using LQNS
     options = SolverLQNS.defaultOptions;
     options.method = 'lqsim';
     solver = SolverLQNS(model, options);
@@ -489,30 +493,28 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     entry_metrics.response_times = response_times;
     entry_metrics.throughputs = throughputs;
 
-
-    % Solve the model using LQNS
+     % Solve the model using LQNS
     options_lqns = SolverLQNS.defaultOptions;
     options_lqns.method = 'lqns';
     solver_lqns = SolverLQNS(model, options_lqns);
-
-
+    
+    
     % Extract metrics for entries
     avg_table_lqns = solver_lqns.getAvgTable();
-
+    
     % Extract relevant rows for entries
     entry_rows_lqns = avg_table_lqns(entry_start_row:entry_end_row, :);
-
+    
     % Extract queue lengths, response times, and throughputs
     queue_lengths_lqns = table2array(entry_rows_lqns(:, 3));   % 3rd column: queue length
     response_times_lqns = table2array(entry_rows_lqns(:, 5)); % 5th column: response time
     throughputs_lqns = table2array(entry_rows_lqns(:, 7));    % 7th column: throughput
-
+    
     % Store metrics in a struct
-    entry_metrics = struct();
     entry_metrics.queue_lengths_lqns = queue_lengths_lqns;
     entry_metrics.response_times_lqns = response_times_lqns;
     entry_metrics.throughputs_lqns = throughputs_lqns;
-
+    
     entry_metrics.queue_lengths_mare = mean(abs(queue_lengths - queue_lengths_lqns) ./ abs(queue_lengths+1e8));
     entry_metrics.response_times_mare = mean(abs(response_times - response_times_lqns) ./ abs(response_times+1e8));
     entry_metrics.throughputs_mare = mean(abs(throughputs - throughputs_lqns) ./ abs(throughputs+1e8));
