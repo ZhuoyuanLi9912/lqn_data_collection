@@ -9,99 +9,64 @@ function Random_LQN_generator(num_LQNs, output_file, config)
     % Returns:
     %   Saves the dataset in a .mat file
 
-    % Default configuration if not provided
+    % --- Configuration Defaults ---
     if nargin < 3
         config = struct( ...
-            'num_processors', [3, 5], ...  % Range for number of processors
-            'tasks_per_processor', [1, 2], ... % Range for tasks per processor
-            'entries_per_task', [1, 2], ... % Range for entries per task
-            'calls_per_entry', [1, 3]); % Range for entry calls
+            'num_processors', [4, 6], ...
+            'tasks_per_processor', [1, 2], ...
+            'entries_per_task', [1, 2], ...
+            'calls_per_entry', [1, 3]);
     end
 
-    % Initialize cell array to store successfully generated LQN models
+
+    rng('shuffle');      
+
+
+    % --- Initialization ---
     LQN_dataset = cell(num_LQNs, 1);
-
-    % Counter for successfully processed LQNs
     successful_count = 0;
+    i = 0;
 
-    i = 0; % Loop counter for total attempts
+    % --- Generation Loop ---
     while successful_count < num_LQNs
-       try
-           i = i + 1; 
-           % Step 1: Generate a random LQN model
-            % Step 1: Generate a random LQN model with timeout (1s)
-            lqn_finished = false;
-            lqn_timer = tic;
+        try
+            i = i + 1;
 
-            LQN_future = parfeval(@generate_random_lqn, 1, config);
+            % Step 1: Generate LQN
+            LQN = generate_random_lqn(config);
 
-            while toc(lqn_timer) < 1
-                if strcmp(LQN_future.State, 'finished')
-                    LQN = fetchOutputs(LQN_future);
-                    lqn_finished = true;
-                    break;
-                end
-                pause(0.05); % small delay to avoid busy waiting
+            % Step 2: Simulate LQN
+            entry_metrics = simulate_lqn_lqns(LQN);
+
+            % Step 3: Attach simulation results
+            if any(isnan(entry_metrics.response_times))
+                continue; % Skip invalid result
             end
 
-            if ~lqn_finished
-                cancel(LQN_future);
-                disp('LQN generation exceeded 1 second, skipping iteration...');
-                i = i + 1;
-                continue;
-            end
-
-            % Step 2: Simulate the LQN using LQNS to calculate metrics with timeout
-            simulation_finished = false;
-            simulation_timer = tic;
-
-            % Run simulation with timeout check
-            entry_metrics = [];
-            simulation_future = parfeval(@simulate_lqn_lqns, 1, LQN);
-
-            while toc(simulation_timer) < 8
-                if strcmp(simulation_future.State, 'finished')
-                    entry_metrics = fetchOutputs(simulation_future);
-                    simulation_finished = true;
-                    break;
-                end
-                pause(0.1); % small delay to avoid busy waiting
-            end
-
-            if ~simulation_finished
-                cancel(simulation_future);
-                disp('Simulation exceeded 8 seconds, skipping iteration...');
-                
-                continue;
-            end
-
-            % Step 3: Store the metrics in the LQN struct
             LQN.entry_queue_lengths = entry_metrics.queue_lengths;
             LQN.entry_response_times = entry_metrics.response_times;
             LQN.entry_throughputs = entry_metrics.throughputs;
-            if any(isnan(LQN.entry_response_times))
-                continue
-            end
-            % Step 4: Save the LQN model with metrics
-            successful_count = successful_count + 1; % Increment successful count
-            LQN_dataset{successful_count} = LQN; % Store the LQN
-            
-            % Display progress
-            disp(['Generated and simulated LQN ', num2str(successful_count), ' of ', num2str(num_LQNs)]);
+
+            % Step 4: Store result
+            successful_count = successful_count + 1;
+            LQN_dataset{successful_count} = LQN;
+
+            disp(['Generated and simulated LQN ', num2str(successful_count), ...
+                ' of ', num2str(num_LQNs)]);
 
         catch ME
-            % Handle the error gracefully and continue to the next iteration
-            disp(['Error encountered while processing LQN ', num2str(i), ': ', ME.message]);
+            disp(['Error encountered while processing LQN ', num2str(i), ...
+                ': ', ME.message]);
             disp('Skipping this LQN and continuing...');
-       end
-
+        end
     end
 
-    % Save the dataset to a .mat file
+    % --- Save Result ---
     save(output_file, 'LQN_dataset');
     disp(['LQN dataset saved to ', output_file]);
     disp(['Totally tried ', num2str(i)]);
 end
+
 
 
 
@@ -280,61 +245,15 @@ function LQN = generate_random_lqn(config)
             edge_indices = find(entry_call_entry_edges(1, :) == source_entry);
             
             n = length(edge_indices); 
-
-            max_tries = 50; % set maximum number of attempts
-            success = false;
-
-            for attempt = 1:max_tries
-                 % Generate n random integers from 1 to 9 (representing 0.1 to 0.9)
-                vals = randi([1,9], n, 1);
-
-                 % Normalize vals to sum exactly 10 (representing total sum = 1.0)
-                vals = round(vals * (10 / sum(vals)));
-
-                 % Adjust sum to exactly 10
-                diff = 10 - sum(vals);
-                inner_attempts = 0;
-
-                while diff ~= 0 && inner_attempts < 100
-                                if diff > 0
-                                    % increase minimal value
-                                    [~, idx] = min(vals);
-                                    if vals(idx) < 9
-                                        vals(idx) = vals(idx) + 1;
-                                        diff = diff - 1;
-                                    else
-                                        break; % No possible increment
-                                    end
-                                elseif diff < 0
-                                    % decrease maximal value
-                                    [~, idx] = max(vals);
-                                    if vals(idx) > 1
-                                        vals(idx) = vals(idx) - 1;
-                                        diff = diff + 1;
-                                    else
-                                        break; % No possible decrement
-                                    end
-                                end
-                        inner_attempts = inner_attempts + 1;
-                 end
-
-                % Check if successful without zeros
-                if all(vals >= 1) && sum(vals) == 10
-                    success = true;
-                    break;
-                end
-             end
-
-            if ~success
-                error('Failed to generate valid numbers without zeros after %d attempts.', max_tries);
-            end
-
-            rounded_probs = vals / 10;
-         
-                % Assign the adjusted probabilities back
+        
+            % Generate one-place decimals summing exactly to 1 using your improved function
+            rounded_probs = generateOnePlaceDecimalsProbability(n);
+        
+            % Assign the adjusted probabilities back
             entry_call_entry_edge_attributes(edge_indices, 1) = rounded_probs;
-            
+        
         end
+
     end
 
     % Create the LQN struct
@@ -446,43 +365,56 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
             else
                 % Add OrFork precedence for this entry using the provided probabilities
-                if (sum(probabilities)~=1)
-                    display('not 1 it is', num2str(probabilities))
-                end
-                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
+
+                tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, round(probabilities, 1)));
             end
         end
     end
-
-    % Solve the model using LQNS
-    options = SolverLQNS.defaultOptions;
-    options.method = 'lqsim';
-    solver = SolverLQNS(model, options);
-
-
-    % Extract metrics for entries
-    avg_table = solver.getAvgTable();
-
-    % Calculate row range for entries
+    % Number of replications
+    num_runs = 10;
+    
+    % Get model structure sizes
     num_processors = size(LQN.processor_attributes, 1);
     num_tasks = size(LQN.task_attributes, 1);
     num_entries = size(LQN.entry_attributes, 1);
+    
+    % Preallocate result matrices
+    all_queue_lengths = zeros(num_entries, num_runs);
+    all_response_times = zeros(num_entries, num_runs);
+    all_throughputs = zeros(num_entries, num_runs);
+    
+    % Run the simulation multiple times
+    for i = 1:num_runs
+        % Create and configure solver using LQSIM
+        options = SolverLQNS.defaultOptions;
+        options.method = 'lqsim';
+        solver = SolverLQNS(model, options);
+    
+        % Run simulation and extract results
+        avg_table = solver.getAvgTable();
+    
+        % Extract entry rows
+        entry_start_row = num_processors + num_tasks + 1;
+        entry_end_row = entry_start_row + num_entries - 1;
+        entry_rows = avg_table(entry_start_row:entry_end_row, :);
+    
+        % Store metrics
+        all_queue_lengths(:, i) = table2array(entry_rows(:, 3));   % Queue lengths
+        all_response_times(:, i) = table2array(entry_rows(:, 5));  % Response times
+        all_throughputs(:, i) = table2array(entry_rows(:, 7));     % Throughputs
+    end
+    
+    % Compute averages across replications
+    mean_queue_lengths = mean(all_queue_lengths, 2);
+    mean_response_times = mean(all_response_times, 2);
+    mean_throughputs = mean(all_throughputs, 2);
+   
 
-    entry_start_row = num_processors + num_tasks + 1;
-    entry_end_row = entry_start_row + num_entries - 1;
-
-    % Extract relevant rows for entries
-    entry_rows = avg_table(entry_start_row:entry_end_row, :);
-
-    % Extract queue lengths, response times, and throughputs
-    queue_lengths = table2array(entry_rows(:, 3));   % 3rd column: queue length
-    response_times = table2array(entry_rows(:, 5)); % 5th column: response time
-    throughputs = table2array(entry_rows(:, 7));    % 7th column: throughput
 
     % Store metrics in a struct
     entry_metrics = struct();
-    entry_metrics.queue_lengths = queue_lengths;
-    entry_metrics.response_times = response_times;
-    entry_metrics.throughputs = throughputs;
+    entry_metrics.queue_lengths = mean_queue_lengths;
+    entry_metrics.response_times = mean_response_times;
+    entry_metrics.throughputs = mean_throughputs;
 end
 
