@@ -43,7 +43,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
             LQN.entry_response_times_lqns = entry_metrics.response_times_lqns;
             LQN.entry_throughput_lqns = entry_metrics.throughputs_lqns;
             LQN.queue_lengths_mare = entry_metrics.queue_lengths_mare;
-            LQN.throughputs_mare = entry_metrics.throughputs_mare;
+            LQN.throughput_mare = entry_metrics.throughput_mare;
             LQN.response_times_mare = entry_metrics.response_times_mare;
 
             % Skip if invalid
@@ -414,13 +414,15 @@ function entry_metrics = simulate_lqn_lqns(LQN)
                 tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
             else
                 % Add OrFork precedence for this entry using the provided probabilities
+
                 probabilities = round(probabilities, 1);
+
                 tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, probabilities));
             end
         end
     end
 
-    % Solve the model using LQSIM
+    % Solve the model using LQNS
     options = SolverLQNS.defaultOptions;
     options.method = 'lqsim';
     solver = SolverLQNS(model, options);
@@ -451,26 +453,25 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     entry_metrics.response_times = response_times;
     entry_metrics.throughputs = throughputs;
 
-
-    % Solve the model using LQNS
+     % Solve the model using LQNS
     options_lqns = SolverLQNS.defaultOptions;
     options_lqns.method = 'lqns';
     solver_lqns = SolverLQNS(model, options_lqns);
-
-
+    
+    
     % Extract metrics for entries
     avg_table_lqns = solver_lqns.getAvgTable();
-
+    
     % Extract relevant rows for entries
     entry_rows_lqns = avg_table_lqns(entry_start_row:entry_end_row, :);
-
+    
     % Extract queue lengths, response times, and throughputs
     queue_lengths_lqns = table2array(entry_rows_lqns(:, 3));   % 3rd column: queue length
     response_times_lqns = table2array(entry_rows_lqns(:, 5)); % 5th column: response time
     throughputs_lqns = table2array(entry_rows_lqns(:, 7));    % 7th column: throughput
-
-    % Store metrics in a struct
     
+    % Store metrics in a struct
+
     entry_metrics.queue_lengths_lqns = queue_lengths_lqns;
     entry_metrics.response_times_lqns = response_times_lqns;
     entry_metrics.throughputs_lqns = throughputs_lqns;
@@ -478,4 +479,5 @@ function entry_metrics = simulate_lqn_lqns(LQN)
     entry_metrics.queue_lengths_mare = mean(abs(queue_lengths - queue_lengths_lqns) ./ abs(queue_lengths+1e-8));
     entry_metrics.response_times_mare = mean(abs(response_times - response_times_lqns) ./ abs(response_times+1e-8));
     entry_metrics.throughputs_mare = mean(abs(throughputs - throughputs_lqns) ./ abs(throughputs+1e-8));
+
 end
