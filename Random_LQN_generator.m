@@ -12,10 +12,11 @@ function Random_LQN_generator(num_LQNs, output_file, config)
     % --- Configuration Defaults ---
     if nargin < 3
         config = struct( ...
-            'num_processors', [4, 6], ...
-            'tasks_per_processor', [1, 2], ...
+            'num_processors', [3, 5], ...
+            'tasks_per_processor', [1, 3], ...
             'entries_per_task', [1, 3], ...
-            'calls_per_entry', [1, 3]);
+            'calls_per_entry', [2, 4]);
+
     end
 
 
@@ -103,8 +104,8 @@ function LQN = generate_random_lqn(config)
 
         for t = 1:num_tasks
             % Add task (including multiplicity as the third column)
-            think_time = round(rand(1, 2) * 2.9 + 0.1, 1); % Mean think time and SCV: 0.1 to 3.0
-            multiplicity = randi([1, 5]); % Random multiplicity between 1 and 5
+            think_time = round(rand * 2.9 + 0.1, 1); % Mean think time and SCV: 0.1 to 3.0
+            multiplicity = randi([1, 10]); % Random multiplicity between 1 and 5
             tasks = [tasks; think_time, multiplicity];
             processor_tasks = [processor_tasks; size(tasks, 1)];
 
@@ -223,7 +224,7 @@ function LQN = generate_random_lqn(config)
                     existing_edges(edge_key) = true;
 
                     % Generate attributes for this call
-                    mean_number_of_calls = round(rand(1) * 2.9 + 0.5, 1); % Random mean: 0.1 to 3.0
+                    mean_number_of_calls = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
                     mean_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random mean: 0.1 to 3.0
                     scv_call_time = round(rand(1) * 2.9 + 0.1, 1); % Random SCV: 0.1 to 3.0
 
@@ -295,7 +296,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
 
     % Create tasks
     for i = 1:size(LQN.task_attributes, 1)
-        multiplicity = LQN.task_attributes(i, 3); % Extract multiplicity
+        multiplicity = LQN.task_attributes(i, 2); % Extract multiplicity
         if LQN.task_on_processor_edges(2, i) == 1
             sched_strategy = SchedStrategy.REF; % First processor
         else
@@ -303,7 +304,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
         end
 
         tasks{i} = Task(model, ['T', num2str(i)], multiplicity, sched_strategy).on(processors{LQN.task_on_processor_edges(2, i)});
-        tasks{i}.setThinkTime(APH.fitMeanAndSCV(LQN.task_attributes(i, 1), LQN.task_attributes(i, 2)));
+        tasks{i}.setThinkTime(Exp.fitMean(LQN.task_attributes(i, 1)));
     end
 
     % Create entries and their primary activities
