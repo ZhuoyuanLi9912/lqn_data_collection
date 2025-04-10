@@ -2,50 +2,50 @@
         
     % first layer
     P1 = Processor(model, 'Layer1', 1, SchedStrategy.PS);
-    T1 = Task(model, 'Client1', 70, SchedStrategy.REF).on(P1);
+    T1 = Task(model, 'Client1', 7, SchedStrategy.REF).on(P1);
     E1 = Entry(model, 'Browse1').on(T1);
-    T2 = Task(model, 'Client2', 70, SchedStrategy.REF).on(P1);
+    T2 = Task(model, 'Client2', 7, SchedStrategy.REF).on(P1);
     E2 = Entry(model, 'Browse2').on(T2);
-    T3 = Task(model, 'Client3', 70, SchedStrategy.REF).on(P1);
+    T3 = Task(model, 'Client3', 7, SchedStrategy.REF).on(P1);
     E3 = Entry(model, 'Browse3').on(T3);
         
         
     %second layer
     P2 = Processor(model, 'Layer2', 1, SchedStrategy.PS);
-    T4 = Task(model, 'Router', 110, SchedStrategy.FCFS).on(P2);
+    T4 = Task(model, 'Router', 11, SchedStrategy.FCFS).on(P2);
     E4 = Entry(model, 'address').on(T4);
 
     %third layer
     P3 = Processor(model, 'Layer3', 1, SchedStrategy.PS);
-    T5 = Task(model, 'FrontEnd', 110, SchedStrategy.FCFS).on(P3);
+    T5 = Task(model, 'FrontEnd', 11, SchedStrategy.FCFS).on(P3);
     E5 = Entry(model, 'home').on(T5);
     E6 = Entry(model, 'toCart').on(T5);
     E7 = Entry(model, 'toCat').on(T5);
 
     %fourth layer
     P4 = Processor(model, 'Layer4', 1, SchedStrategy.PS);
-    T6 = Task(model, 'Cart', 225, SchedStrategy.FCFS).on(P4);
+    T6 = Task(model, 'Cart', 5, SchedStrategy.FCFS).on(P4);
     E8 = Entry(model, 'add').on(T6);
     E9 = Entry(model, 'delete').on(T6);
     E10 = Entry(model, 'get').on(T6);
-    T7 = Task(model, 'Catalog', 7, SchedStrategy.FCFS).on(P4);
+    T7 = Task(model, 'Catalog', 2, SchedStrategy.FCFS).on(P4);
     E11 = Entry(model, 'item').on(T7);
     E12 = Entry(model, 'list').on(T7);
     
 
     %fifth layer
     P5 = Processor(model, 'Layer5', 1, SchedStrategy.PS);
-    T8 = Task(model, 'CartDB', 100, SchedStrategy.FCFS).on(P5);
+    T8 = Task(model, 'CartDB', 5, SchedStrategy.FCFS).on(P5);
     E13 = Entry(model, 'queryCart').on(T8);
-    T9 = Task(model, 'CatDB', 151, SchedStrategy.FCFS).on(P5);
+    T9 = Task(model, 'CatDB', 2, SchedStrategy.FCFS).on(P5);
     E14 = Entry(model, 'queryCat').on(T9);
 
 
-    A1 = Activity(model, 'A1', Exp.fitMean(1)).on(T1).boundTo(E1).synchCall(E4,1);
+    A1 = Activity(model, 'A1', Exp.fitMean(0.5)).on(T1).boundTo(E1).synchCall(E4,1);
     
     A2 = Activity(model, 'A2', Exp.fitMean(1)).on(T2).boundTo(E2).synchCall(E4,1);
     
-    A3 = Activity(model, 'A3', Exp.fitMean(1)).on(T3).boundTo(E3).synchCall(E4,1);
+    A3 = Activity(model, 'A3', Exp.fitMean(2)).on(T3).boundTo(E3).synchCall(E4,1);
     
     A4 = Activity(model, 'A4', Exp.fitMean(1.2)).on(T4).boundTo(E4);
     A5 = Activity(model, 'A5', Exp.fitMean(0.1)).on(T4).synchCall(E5,0.5).repliesTo(E4);
@@ -76,13 +76,16 @@
     A21 = Activity(model,'A21', Exp.fitMean(2.2)).on(T8).boundTo(E13).repliesTo(E13);
     A22 = Activity(model,'A22', Exp.fitMean(1.3)).on(T9).boundTo(E14).repliesTo(E14);
 
+    
+    %SolverLN(model,@SolverNN).getAvgTable
     options = SolverLQNS.defaultOptions;
+    options.verbose = true;
     options.method = 'lqsim';
     lqnssolver = SolverLQNS(model, options);
     AvgTableLQNS = lqnssolver.getAvgTable;
 
     options2 = SolverLQNS.defaultOptions;
-    options2.method = 'lqns';
+    options2.method = 'lqsim';
     lqnssolver2 = SolverLQNS(model, options2);
     AvgTableLQNS2 = lqnssolver2.getAvgTable;
 

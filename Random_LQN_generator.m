@@ -14,7 +14,7 @@ function Random_LQN_generator(num_LQNs, output_file, config)
         config = struct( ...
             'num_processors', [4, 6], ...
             'tasks_per_processor', [1, 2], ...
-            'entries_per_task', [1, 2], ...
+            'entries_per_task', [1, 3], ...
             'calls_per_entry', [1, 3]);
     end
 
@@ -371,7 +371,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
         end
     end
     % Number of replications
-    num_runs = 10;
+    num_runs = 1;
     
     % Get model structure sizes
     num_processors = size(LQN.processor_attributes, 1);
