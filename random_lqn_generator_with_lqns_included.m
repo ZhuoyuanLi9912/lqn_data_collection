@@ -10,12 +10,13 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
     %   Saves the dataset in a .mat file
 
     % Default configuration if not provided
+    tic
     if nargin < 3
         config = struct( ...
-            'num_processors', [3, 5], ...
+            'num_processors', [4, 6], ...
             'tasks_per_processor', [1, 3], ...
             'entries_per_task', [1, 3], ...
-            'calls_per_entry', [2, 4]);
+            'calls_per_entry', [1, 3]);
     end
 
     % Initialize cell array to store successfully generated LQN models
@@ -43,7 +44,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
             LQN.entry_response_times_lqns = entry_metrics.response_times_lqns;
             LQN.entry_throughput_lqns = entry_metrics.throughputs_lqns;
             LQN.queue_lengths_mare = entry_metrics.queue_lengths_mare;
-            LQN.throughput_mare = entry_metrics.throughput_mare;
+            LQN.throughputs_mare = entry_metrics.throughputs_mare;
             LQN.response_times_mare = entry_metrics.response_times_mare;
 
             % Skip if invalid
@@ -68,6 +69,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
     save(output_file, 'LQN_dataset');
     disp(['LQN dataset saved to ', output_file]);
     disp(['Totally tried ', num2str(i)]);
+    toc
 end
 
 

@@ -1,5 +1,5 @@
 % Directory containing the .mat files
-dataDir = "C:\GLQN\matlab\data\ser_exp\small_models";  
+dataDir = "C:\GLQN\data\ser_experiment\3_5_models";  
 
 % Name of the variable inside each .mat file
 varName = 'LQN_dataset';  

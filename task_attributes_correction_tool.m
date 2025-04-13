@@ -1,5 +1,5 @@
 % Load your dataset
-load("C:\GLQN\data\ser_experiment\small_model\overall.mat");  % This should load a variable named LQN_dataset
+load("C:\GLQN\data\ser_experiment\small_model\4_6models_lqsim_lqns_GNN_input.mat");  % This should load a variable named LQN_dataset
 
 % Iterate over the cells
 for i = 1:numel(LQN_dataset)
@@ -11,4 +11,4 @@ for i = 1:numel(LQN_dataset)
 end
 
 % Save the corrected dataset
-save('LQN_dataset_cleaned.mat', 'LQN_dataset');
+save("C:\GLQN\data\ser_experiment\small_model\4_6models_lqsim_lqns_GNN_input.mat", 'LQN_dataset');

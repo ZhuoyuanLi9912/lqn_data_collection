@@ -86,34 +86,54 @@
     AvgTableLQNS = lqnssolver.getAvgTable;
 
     toc
-
-    options2 = SolverLQNS.defaultOptions;
-    options2.method = 'lqsim';
-    lqnssolver2 = SolverLQNS(model, options2);
-    AvgTableLQNS2 = lqnssolver2.getAvgTable;
-
-    num_processors = 5;
-    num_tasks = 9;
-    num_entries = 14;
-
-    entry_start_row = num_processors + num_tasks + 1;
-    entry_end_row = entry_start_row + num_entries - 1;
-
-    % Extract relevant rows for entries
-    entry_rows = AvgTableLQNS (entry_start_row:entry_end_row, :);
-
-    % Extract queue lengths, response times, and throughputs
-    queue_lengths = table2array(entry_rows(:, 3));   % 3rd column: queue length
-    response_times = table2array(entry_rows(:, 5)); % 5th column: response time
-    throughputs = table2array(entry_rows(:, 7));    % 7th column: throughput
-
-    entry_rows_lqns = AvgTableLQNS2 (entry_start_row:entry_end_row, :);
-
-    % Extract queue lengths, response times, and throughputs
-    queue_lengths_lqns = table2array(entry_rows_lqns(:, 3));   % 3rd column: queue length
-    response_times_lqns = table2array(entry_rows_lqns(:, 5)); % 5th column: response time
-    throughputs_lqns = table2array(entry_rows_lqns(:, 7));    % 7th column: throughput
-
-    queue_lengths_mare = mean(abs(queue_lengths - queue_lengths_lqns) ./ abs(queue_lengths+1e-8))
-    response_times_mare = mean(abs(response_times - response_times_lqns) ./ abs(response_times+1e-8))
-    throughputs_mare = mean(abs(throughputs - throughputs_lqns) ./ abs(throughputs+1e-8))
+    % Number of simulation runs
+    num_runs = 30;
+    
+    % Preallocate arrays
+    queue_lengths_all = zeros(num_entries, num_runs);
+    response_times_all = zeros(num_entries, num_runs);
+    throughputs_all = zeros(num_entries, num_runs);
+    
+    % Run simulations
+    for i = 1:num_runs
+        options2 = SolverLQNS.defaultOptions;
+        options2.method = 'lqsim';
+        lqnssolver2 = SolverLQNS(model, options2);
+        AvgTableLQNS2 = lqnssolver2.getAvgTable;
+    
+        entry_start_row = num_processors + num_tasks + 1;
+        entry_end_row = entry_start_row + num_entries - 1;
+        entry_rows = AvgTableLQNS2(entry_start_row:entry_end_row, :);
+    
+        queue_lengths_all(:, i) = table2array(entry_rows(:, 3));
+        response_times_all(:, i) = table2array(entry_rows(:, 5));
+        throughputs_all(:, i) = table2array(entry_rows(:, 7));
+    end
+    
+    % Compute mean and std
+    mean_ql = mean(queue_lengths_all, 2);
+    std_ql = std(queue_lengths_all, 0, 2);
+    
+    mean_rt = mean(response_times_all, 2);
+    std_rt = std(response_times_all, 0, 2);
+    
+    mean_tp = mean(throughputs_all, 2);
+    std_tp = std(throughputs_all, 0, 2);
+    
+    % Avoid divide-by-zero
+    eps_val = 1e-6;
+    
+    % Compute CVs
+    cv_ql = std_ql ./ (mean_ql + eps_val);
+    cv_rt = std_rt ./ (mean_rt + eps_val);
+    cv_tp = std_tp ./ (mean_tp + eps_val);
+    
+    % Average CVs per metric
+    queue_length_noise = mean(cv_ql);
+    response_time_noise = mean(cv_rt);
+    throughput_noise = mean(cv_tp);
+    
+    % Display results
+    disp(['Queue Length Noise (CV): ', num2str(queue_length_noise)]);
+    disp(['Response Time Noise (CV): ', num2str(response_time_noise)]);
+    disp(['Throughput Noise (CV): ', num2str(throughput_noise)]);

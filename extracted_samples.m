@@ -1,5 +1,5 @@
 % Set path to your .mat file
-matFilePath = "C:\GLQN\matlab\data\small_lqsim\overall_2_60000samples.mat"; % <-- Change to your actual file
+matFilePath = "C:\GLQN\data\ser_experiment\3_5_models\LQN_dataset_filtered.mat"; % <-- Change to your actual file
 
 % Load the .mat file
 data = load(matFilePath);
@@ -10,7 +10,7 @@ if isfield(data, 'LQN_dataset')
     
     % Define number of samples to extract
 
-    n = 170000; % <-- Set your desired number of samples
+    n = 100; % <-- Set your desired number of samples
 
     
     % Ensure n does not exceed the number of available samples
@@ -18,7 +18,7 @@ if isfield(data, 'LQN_dataset')
     
     % Extract the first n samples
 
-    LQN_dataset = full_dataset(244000:245000);
+    LQN_dataset = full_dataset(1:n);
     
     
     % Save to a new .mat file with the same variable name
