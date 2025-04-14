@@ -1,5 +1,5 @@
 % Load the dataset
-load("C:\GLQN\data\ser_experiment\small_model\LQN_dataset_cleaned.mat");
+load("C:\GLQN\matlab\data\ser_exp\small_models\overall.mat");
 
 if ~exist('LQN_dataset', 'var')
     error('LQN_dataset not found in the loaded file.');
@@ -8,7 +8,7 @@ end
 % Target fields and their thresholds [min, max]
 filterFields = {
     'entry_queue_lengths',       [0.001, 9.9];
-    'entry_response_times',      [0.01, 200];
+    'entry_response_times',      [0.01, 300];
     'entry_throughputs',         [0.001, 0.99]
 };
 
