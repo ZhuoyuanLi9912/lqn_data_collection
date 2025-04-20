@@ -13,7 +13,7 @@ function random_lqn_generator_with_lqns_included(num_LQNs, output_file, config)
     tic
     if nargin < 3
         config = struct( ...
-            'num_processors', [4, 6], ...
+            'num_processors', [15, 20], ...
             'tasks_per_processor', [1, 3], ...
             'entries_per_task', [1, 3], ...
             'calls_per_entry', [1, 3]);
@@ -457,7 +457,7 @@ function entry_metrics = simulate_lqn_lqns(LQN)
 
      % Solve the model using LQNS
     options_lqns = SolverLQNS.defaultOptions;
-    options_lqns.method = 'lqns';
+    options_lqns.method = 'lqsim';
     solver_lqns = SolverLQNS(model, options_lqns);
     
     
