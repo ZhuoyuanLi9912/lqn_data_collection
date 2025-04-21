@@ -1,20 +1,27 @@
-parse_csv_file
+results = parse_csv_file();
 function results = parse_csv_file()
     % Load Sobol sample CSV
-    sobol = readmatrix("C:\GLQN\python\GLQN\Sobol_sampling\sampling_data\chunk_01.csv"); % Update path if needed
+    sobol = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\sampling_data\chunk_01.csv"); % Update path if needed
     
     % Load weight lookup table
-    lookup = readtable("C:\GLQN\python\GLQN\weight_lookup.csv"); % Update path if needed
+    lookup = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\custom_balanced_pattern.csv");
+
+
+    % Struct template with all fields
     template = struct( ...
-    'processor_count', zeros(1, 0), ...
-    'tasks_per_proc',  zeros(1, 0), ...
-    'multiplicity',    zeros(1, 0), ...
-    'think_time',      zeros(1, 0), ...
-    'entries_per_task',zeros(1, 0), ...
-    'pattern_ids',     zeros(1, 0), ...
-    'service_times',   zeros(1, 0) ...
+        'processor_count', zeros(1, 0), ...
+        'tasks_per_proc',  zeros(1, 0), ...
+        'multiplicity',    zeros(1, 0), ...
+        'think_time',      zeros(1, 0), ...
+        'entries_per_task',zeros(1, 0), ...
+        'pattern_ids',     zeros(1, 0), ...
+        'calls_per_entry', zeros(1, 0), ...
+        'probabilities',   {cell(1, 0)}, ...
+        'service_times',   zeros(1, 0) ...
     );
+
     results(1:size(sobol, 1)) = template;
+
     % Loop over each row (sample)
     for i = 1:size(sobol, 1)
         row = sobol(i, :);
@@ -28,57 +35,69 @@ function results = parse_csv_file()
         tasks_per_proc = row(idx:idx+processor_count-1);
         idx = idx + 8;
     
-
         % 3. Task multiplicity and think time (only first 'total_tasks')
         total_tasks = sum(tasks_per_proc);
         multiplicity = row(idx:2:idx + 2*total_tasks - 1);
         think_time = row(idx+1:2:idx + 2*total_tasks - 1);
-
         idx = idx + 64;
     
-        % 5. Entries per task (only first 'total_tasks')
+        % 4. Entries per task (only first 'total_tasks')
         entries_per_task = row(idx:idx+total_tasks-1);
         idx = idx + 32;
     
-        % 6. Total number of entries
+        % 5. Total number of entries
         num_entries = sum(entries_per_task);
     
-        % 7. Skip activities per entry
+        % 6. Skip activities per entry
         idx = idx + 128;
     
-        % 8. Activity service times (640 floats) — we'll extract later
+        % 7. Service time start index
         service_time_start_idx = idx;
     
-        % 9. Pattern selectors (only first 'num_entries')
+        % 8. Pattern selectors (only first 'num_entries')
         pattern_ids = row(idx+640 : idx+640+num_entries-1);
-        
-        % Lookup how many non-zero weights per pattern
-        num_service_times_needed = 0;
-        for pid = pattern_ids
-            % Find the pattern row in the lookup
-            match = lookup.ID == pid;
-            weights = table2array(lookup(match, 2:end));
-            num_nonzero = sum(weights > 0);
-            num_service_times_needed = num_service_times_needed + num_nonzero;
-        end
     
-        % Extract the correct number of service times
+        % 9. Analyze pattern IDs
+        num_service_times_needed = 0;
+        calls_per_entry = zeros(1, num_entries);
+        probabilities = cell(1, num_entries);
+
+        for e = 1:num_entries
+            pid = pattern_ids(e);  % Now this is just a row index
+            if pid >= 1 && pid <= size(lookup, 1)
+                weights = lookup(pid, :);  % Just get the row directly
+            else
+                weights = zeros(1, size(lookup, 2));  % fallback to all zeros
+            end
+        
+            nonzero = weights > 0;
+            calls_per_entry(e) = sum(nonzero);
+            probabilities{e} = weights;
+            num_service_times_needed = num_service_times_needed + calls_per_entry(e)+1;
+        end
+
+    
+        % 10. Extract service times
         service_times = row(service_time_start_idx : service_time_start_idx + num_service_times_needed - 1);
     
-        % (Optional) Store results in struct
-        results{i}.processor_count = processor_count;
-        results{i}.tasks_per_proc = tasks_per_proc;
-        results{i}.multiplicity = multiplicity;
-        results{i}.think_time = think_time;
-        results{i}.entries_per_task = entries_per_task;
-        results{i}.pattern_ids = pattern_ids;
-        results{i}.calls_per_entry = pattern_ids;
-        results{i}.service_times = service_times;
+        % 11. Store into result struct
+        results(i).processor_count = processor_count;
+        results(i).tasks_per_proc = tasks_per_proc;
+        results(i).multiplicity = multiplicity;
+        results(i).think_time = think_time;
+        results(i).entries_per_task = entries_per_task;
+        results(i).pattern_ids = pattern_ids;
+        results(i).calls_per_entry = calls_per_entry;
+        results(i).probabilities = probabilities;
+        results(i).service_times = service_times;
     end
 end
+
 % Example: display first result
-disp(results{1});
-function entry_metrics = simulate_lqn_lqns(results)
+r = results(1);  % Store into a temporary variable
+disp(r);
+
+function LQN = simulate_lqn_lqns(results)
     % Simulate the LQN and extract metrics for each entry using LQNS
     %
     % Args:
@@ -88,9 +107,39 @@ function entry_metrics = simulate_lqn_lqns(results)
     %   entry_metrics (struct): Struct containing queue lengths, response times, and throughputs for each entry
 
     % Create the LayeredNetwork model
-    n = size(results, 2);
-    for k = 1:n
+    template = struct( ...
+        'task_attributes',                       zeros(0, 2), ...
+        'task_on_processor_edges',              zeros(2, 0), ...
+        'entry_on_task_edges',                  zeros(2, 0), ...
+        'activity_attributes',                  zeros(0, 2), ...
+        'activity_on_entry_edges',              zeros(2, 0), ...
+        'activity_activity_edges',              zeros(2, 0), ...
+        'activity_activity_edge_attributes',    zeros(0, 2), ...
+        'activity_call_entry_edges',            zeros(2, 0), ...
+        'activity_call_entry_edge_attributes',  zeros(0, 2), ...
+        'entry_queue_lengths',                  zeros(0, 1), ...
+        'entry_response_times',                 zeros(0, 1), ...
+        'entry_throughputs',                    zeros(0, 1) ...
+    );
+    N = size(results, 2);
+    LQN(1:N) = template;
+    for n = 1:N
         result = results(i);
+        num_of_processor = result.processor_count;
+        num_of_task = size(result.multiplicity,2);
+        num_of_entry = size(result.pattern_ids,2);
+        num_of_activity = size(result.service_times,2);
+        num_of_calls = num_of_activity - num_of_entry;
+        task_attributes = zeros(num_of_task, 2);
+        task_on_processor_edges = zeros(2,num_of_task);
+        entry_on_task_edges = zeros(2,num_of_entry);
+        activity_attributes = zeros(num_of_activity,1);
+        activity_on_entry_edges = zeros(2,num_of_activity);
+        activity_activity_edges = zeros(2,num_of_calls);
+        activity_activity_edge_attributes = zeros(num_of_calls,1);
+        activity_call_entry_edges = zeros(2,num_of_calls);
+        activity_call_entry_edge_attributes = zeros(num_of_calls,1);
+
         model = LayeredNetwork('LQN');
     
         % Step 1: Create processors, tasks, and entries (no calls yet)
@@ -100,36 +149,43 @@ function entry_metrics = simulate_lqn_lqns(results)
         activities = cell(size(result.service_times, 1), 1); % Store primary activities
     
         % Create processors
-        for i = 1:results.processor_count
+        for i = 1:num_of_processor
             processors{i} = Processor(model, ['P', num2str(i)], 1, SchedStrategy.PS);
         end
-    
+        task_index = 0;
         % Create tasks
-        for i = 1:size(LQN.task_attributes, 1)
-            multiplicity = LQN.task_attributes(i, 2); % Extract multiplicity
-            if LQN.task_on_processor_edges(2, i) == 1
-                sched_strategy = SchedStrategy.REF; % First processor
-            else
-                sched_strategy = SchedStrategy.FCFS; % Other processors
+        for i = 1:num_of_processor
+            for j = 1:result.tasks_per_proc(i)
+                task_index = task_index+1;
+                multiplicity = result.multiplicity(task_index);
+                think_time = result.think_time(task_index);
+                task_attributes(task_index,:) = [multiplicity,think_time];
+                if i == 1
+                    sched_strategy = SchedStrategy.REF; % First processor
+                else
+                    sched_strategy = SchedStrategy.FCFS; % Other processors
+                end
+                tasks{task_index} = Task(model, ['T', num2str(task_index)], multiplicity, sched_strategy).on(processors{i});
+                tasks{task_index}.setThinkTime(Exp.fitMean(think_time));
+                task_on_processor_edges(:,task_index) = [task_index;i];
             end
-    
-            tasks{i} = Task(model, ['T', num2str(i)], multiplicity, sched_strategy).on(processors{LQN.task_on_processor_edges(2, i)});
-            tasks{i}.setThinkTime(Exp.fitMean(LQN.task_attributes(i, 1)));
         end
-    
+        entry_index = 0;
+        activity_index = 0;
         % Create entries and their primary activities
-        for i = 1:size(LQN.entry_attributes, 1)
-            task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
-            entries{i} = Entry(model, ['E', num2str(i)]).on(tasks{task_id});
-    
-            % Create primary activity for this entry
-            activities{i} = Activity(model, ['A', num2str(i)], APH.fitMeanAndSCV(LQN.entry_attributes(i, 1), LQN.entry_attributes(i, 2))) ...
-                .on(tasks{task_id}).boundTo(entries{i});
+        for i = 1:num_of_task
+            for j = 1:result.entries_per_task(i)
+                entry_index = entry_index+1;
+                activity_index = activity_index+1;
+                entries{entry_index} = Entry(model, ['E', num2str(entry_index)]).on(tasks{i});
+                % Create primary activity for this entry
+                activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(result.service_times(activity_index))) ...
+                    .on(tasks{i}).boundTo(entries{entry_index});
+                activity_attributes(activity_index) = result.service_times(activity_index);
+                entry_on_task_edges(:,entry_index) = [entry_index;i];
+                activity_on_entry_edges(:,activity_index)=[activity_index;entry_index];
+            end
         end
-    
-        % Step 2: Add calls between entries
-        call_activity = cell(size(LQN.entry_attributes, 1), 1); % Store call activities for each entry
-        global_call_counter = 1; % Initialize a global call counter
     
         for i = 1:size(LQN.entry_attributes, 1)
             % Check if this entry makes any calls
