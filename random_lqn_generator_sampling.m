@@ -53,6 +53,7 @@ function results = parse_csv_file()
     
         % 7. Service time start index
         service_time_start_idx = idx;
+        num_of_last_layer_entry = sum(entries_per_task(end - tasks_per_proc(end) + 1 : end));
     
         % 8. Pattern selectors (only first 'num_entries')
         pattern_ids = row(idx+640 : idx+640+num_entries-1);
@@ -61,8 +62,8 @@ function results = parse_csv_file()
         num_service_times_needed = 0;
         calls_per_entry = zeros(1, num_entries);
         probabilities = cell(1, num_entries);
-
-        for e = 1:num_entries
+        
+        for e = 1:num_entries-num_of_last_layer_entry
             pid = pattern_ids(e);  % Now this is just a row index
             if pid >= 1 && pid <= size(lookup, 1)
                 weights = lookup(pid, :);  % Just get the row directly
@@ -72,10 +73,20 @@ function results = parse_csv_file()
         
             nonzero = weights > 0;
             calls_per_entry(e) = sum(nonzero);
-            probabilities{e} = weights;
+            % Find the last non-zero element
+            last_nonzero = find(weights ~= 0, 1, 'last');
+            
+            % Trim the array
+            if isempty(last_nonzero)
+                trimmed_weights = [];  % All zeros
+            else
+                trimmed_weights = weights(1:last_nonzero);
+            end
+            probabilities{e} = trimmed_weights;
             num_service_times_needed = num_service_times_needed + calls_per_entry(e)+1;
         end
 
+        num_service_times_needed = num_service_times_needed + num_of_last_layer_entry;
     
         % 10. Extract service times
         service_times = row(service_time_start_idx : service_time_start_idx + num_service_times_needed - 1);
@@ -128,17 +139,12 @@ function LQN = simulate_lqn_lqns(results)
         num_of_processor = result.processor_count;
         num_of_task = size(result.multiplicity,2);
         num_of_entry = size(result.pattern_ids,2);
-        num_of_activity = size(result.service_times,2);
-        num_of_calls = num_of_activity - num_of_entry;
+        
         task_attributes = zeros(num_of_task, 2);
         task_on_processor_edges = zeros(2,num_of_task);
         entry_on_task_edges = zeros(2,num_of_entry);
-        activity_attributes = zeros(num_of_activity,1);
-        activity_on_entry_edges = zeros(2,num_of_activity);
-        activity_activity_edges = zeros(2,num_of_calls);
-        activity_activity_edge_attributes = zeros(num_of_calls,1);
-        activity_call_entry_edges = zeros(2,num_of_calls);
-        activity_call_entry_edge_attributes = zeros(num_of_calls,1);
+
+
 
         model = LayeredNetwork('LQN');
     
@@ -172,23 +178,110 @@ function LQN = simulate_lqn_lqns(results)
         end
         entry_index = 0;
         activity_index = 0;
-        % Create entries and their primary activities
+        % Create entries
         for i = 1:num_of_task
             for j = 1:result.entries_per_task(i)
                 entry_index = entry_index+1;
-                activity_index = activity_index+1;
                 entries{entry_index} = Entry(model, ['E', num2str(entry_index)]).on(tasks{i});
-                % Create primary activity for this entry
-                activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(result.service_times(activity_index))) ...
-                    .on(tasks{i}).boundTo(entries{entry_index});
-                activity_attributes(activity_index) = result.service_times(activity_index);
+
                 entry_on_task_edges(:,entry_index) = [entry_index;i];
-                activity_on_entry_edges(:,activity_index)=[activity_index;entry_index];
+                
             end
         end
+
+        % Build fast task-to-processor lookup array
+        max_task = max(task_on_processor_edges(1, :));
+        task_to_proc = zeros(1, max_task);
+        task_to_proc(task_on_processor_edges(1, :)) = task_on_processor_edges(2, :);
+        
+        % Create entry-to-processor edge matrix
+        entry_indices = entry_on_task_edges(1, :);
+        task_indices = entry_on_task_edges(2, :);
+        processor_indices = task_to_proc(task_indices);
+        
+        entry_to_processor_edges = [
+            entry_indices;
+            processor_indices
+        ];
+        for i = 1:result.processor_count-1
+            current_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == i);
+            next_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == i+1);
+            for entry = 1:length(result.calls_per_entry)
+                max_calls = length(next_layer_entries);
+                current_calls = result.calls_per_entry(entry);
+            
+                if current_calls > max_calls
+                    % Trim number of calls
+                    result.calls_per_entry(entry) = max_calls;
+            
+                    % Fix probabilities
+                    probs = result.probabilities{entry};  % 1×original_calls vector
+            
+                    % Combine the tail into the last allowed slot
+                    trimmed_probs = probs(1:max_calls);
+                    trimmed_probs(end) = trimmed_probs(end) + sum(probs(max_calls+1:end));
+            
+                    % Save back
+                    result.probabilities{entry} = trimmed_probs;
+                end
+            end
+            while sum(result.calls_per_entry(current_layer_entries)) < length(next_layer_entries)
+                % Find the entry in current_layer_entries with the least calls
+                [~, idx] = min(result.calls_per_entry(current_layer_entries));
+                entry = current_layer_entries(idx);
+            
+                % Increase call count
+                result.calls_per_entry(entry) = result.calls_per_entry(entry) + 1;
+            
+                % Get current probabilities
+                probs = result.probabilities{entry};
+            
+                % Find index of largest probability
+                [~, max_idx] = max(probs);
+            
+                % Reduce it by 0.1 and append a new 0.1 probability
+                probs(max_idx) = probs(max_idx) - 0.1;
+                probs(end+1) = 0.1;
+            
+                % Save back
+                result.probabilities{entry} = probs;
+            end            
+        end
+        
+        
+        %creat activities
+        num_of_calls = sum(result.calls_per_entry);
+        num_of_activity = num_of_entry+num_of_calls;
+
+        if length(result.service_times) < num_of_activity
+            shortfall = num_of_activity - length(result.service_times);
+            fill_vals = result.service_times(randi(length(result.service_times), 1, shortfall));
+            result.service_times(end+1 : num_of_activity) = fill_vals;
+        end
+        activity_attributes = zeros(num_of_activity,1);
+        activity_on_entry_edges = zeros(2,num_of_activity);
+        activity_activity_edges = zeros(2,num_of_calls);
+        activity_activity_edge_attributes = zeros(num_of_calls,1);
+        activity_call_entry_edges = zeros(2,num_of_calls);
+        activity_call_entry_edge_attributes = zeros(num_of_calls,1);
+        if_called = zeros(1,num_of_entry);
     
-        for i = 1:size(LQN.entry_attributes, 1)
+        for i = 1:num_of_entry
+            parent_task_index = entry_on_task_edges(2, find(entry_on_task_edges(1,:) == i, 1));
+            activity_index = activity_index+1;
+            % Create primary activity for this entry
+            activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(result.service_times(activity_index))) ...
+                .on(tasks{parent_task_index}).boundTo(entries{i});
+            activity_attributes(activity_index) = result.service_times(activity_index);
+            activity_on_entry_edges(:,activity_index)=[activity_index;i];
             % Check if this entry makes any calls
+            if result.calls_per_entry(i)>0
+                current_processor = entry_to_processor_edges(2, find(entry_to_processor_edges(1,:) == i, 1));
+                next_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == current_processor + 1);
+
+
+            end
+
             outgoing_call_indices = find(LQN.entry_call_entry_edges(1, :) == i); % Find all calls originating from this entry
             task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
             is_top_layer_task = (LQN.task_on_processor_edges(2, task_id) == 1); % Check if this task is on the top layer
