@@ -122,12 +122,12 @@ function LQN = simulate_lqn_lqns(results)
         'task_attributes',                       zeros(0, 2), ...
         'task_on_processor_edges',              zeros(2, 0), ...
         'entry_on_task_edges',                  zeros(2, 0), ...
-        'activity_attributes',                  zeros(0, 2), ...
+        'activity_attributes',                  zeros(0, 1), ...
         'activity_on_entry_edges',              zeros(2, 0), ...
         'activity_activity_edges',              zeros(2, 0), ...
-        'activity_activity_edge_attributes',    zeros(0, 2), ...
+        'activity_activity_edge_attributes',    zeros(0, 1), ...
         'activity_call_entry_edges',            zeros(2, 0), ...
-        'activity_call_entry_edge_attributes',  zeros(0, 2), ...
+        'activity_call_entry_edge_attributes',  zeros(0, 1), ...
         'entry_queue_lengths',                  zeros(0, 1), ...
         'entry_response_times',                 zeros(0, 1), ...
         'entry_throughputs',                    zeros(0, 1) ...
@@ -211,17 +211,17 @@ function LQN = simulate_lqn_lqns(results)
             
                 if current_calls > max_calls
                     % Trim number of calls
-                    result.calls_per_entry(entry) = max_calls;
+                    result.calls_per_entry(current_layer_entries(e)) = max_calls;
             
                     % Fix probabilities
-                    probs = result.probabilities{entry};  % 1×original_calls vector
+                    probs = result.probabilities{current_layer_entries(e)};  % 1×original_calls vector
             
                     % Combine the tail into the last allowed slot
                     trimmed_probs = probs(1:max_calls);
                     trimmed_probs(end) = trimmed_probs(end) + sum(probs(max_calls+1:end));
             
                     % Save back
-                    result.probabilities{entry} = trimmed_probs;
+                    result.probabilities{current_layer_entries(e)} = trimmed_probs;
                 end
             end
             while sum(result.calls_per_entry(current_layer_entries)) < length(next_layer_entries)
@@ -292,10 +292,10 @@ function LQN = simulate_lqn_lqns(results)
                             .on(tasks{parent_task_index}).synchCall(entries{selected}, round(result.call_times(call_index),1));
                     activity_attributes(activity_index) = round(result.service_times(activity_index),1);
                     activity_on_entry_edges(:,activity_index)=[activity_index;i];
-                    activity_call_entry_edges(:,num_of_calls)=[activity_index,selected];
-                    activity_call_entry_edge_attributes(:,num_of_calls)=round(result.call_times(call_index),1);
-                    activity_activity_edges(:,num_of_calls) = [activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1),activity_index)];
-                    activity_activity_edge_attributes(num_of_calls) = result.probabilities{i}(c);
+                    activity_call_entry_edges(:,call_index)=[activity_index;selected];
+                    activity_call_entry_edge_attributes(call_index)=round(result.call_times(call_index),1);
+                    activity_activity_edges(:,call_index) = [activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1));activity_index];
+                    activity_activity_edge_attributes(call_index) = result.probabilities{i}(c);
                     if current_processor ~=1
                         activities{activity_index}.repliesTo(entries{i});
                     end
@@ -304,7 +304,7 @@ function LQN = simulate_lqn_lqns(results)
                     tasks{parent_task_index}.addPrecedence(ActivityPrecedence.Serial(activities{activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1))}, activities{activity_index}));
                 else
                     target_activities = activities(activity_index - size(result.probabilities{i},2) + 1 : activity_index);
-                    tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1))}, target_activities, round(result.probabilities{i}, 1)));
+                    tasks{parent_task_index}.addPrecedence(ActivityPrecedence.OrFork(activities{activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1))}, target_activities, round(result.probabilities{i}, 1)));
                 end
             else
                 activities{activity_index}.repliesTo(entries{i});
