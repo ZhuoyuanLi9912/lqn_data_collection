@@ -1,7 +1,9 @@
 results = parse_csv_file();
+LQN = simulate_lqn_lqns(results);
+save('LQN_dataset_test.mat', 'LQN');
 function results = parse_csv_file()
     % Load Sobol sample CSV
-    sobol = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\sampling_data\chunk_01.csv"); % Update path if needed
+    sobol = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\sampling_data\chunk_001.csv"); % Update path if needed
     
     % Load weight lookup table
     lookup = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\custom_balanced_pattern.csv");
@@ -52,14 +54,12 @@ function results = parse_csv_file()
         idx = idx + 128;
     
         % 7. Service time start index
-        service_time_start_idx = idx;
         num_of_last_layer_entry = sum(entries_per_task(end - tasks_per_proc(end) + 1 : end));
     
         % 8. Pattern selectors (only first 'num_entries')
         pattern_ids = row(idx+640 : idx+640+num_entries-1);
     
         % 9. Analyze pattern IDs
-        num_service_times_needed = 0;
         calls_per_entry = zeros(1, num_entries);
         probabilities = cell(1, num_entries);
         
@@ -83,13 +83,12 @@ function results = parse_csv_file()
                 trimmed_weights = weights(1:last_nonzero);
             end
             probabilities{e} = trimmed_weights;
-            num_service_times_needed = num_service_times_needed + calls_per_entry(e)+1;
         end
 
-        num_service_times_needed = num_service_times_needed + num_of_last_layer_entry;
     
         % 10. Extract service times
-        service_times = row(service_time_start_idx : service_time_start_idx + num_service_times_needed - 1);
+        service_times = row(234:873);
+        call_times = row(1002:1385);
     
         % 11. Store into result struct
         results(i).processor_count = processor_count;
@@ -101,6 +100,7 @@ function results = parse_csv_file()
         results(i).calls_per_entry = calls_per_entry;
         results(i).probabilities = probabilities;
         results(i).service_times = service_times;
+        results(i).call_times = call_times;
     end
 end
 
@@ -135,7 +135,7 @@ function LQN = simulate_lqn_lqns(results)
     N = size(results, 2);
     LQN(1:N) = template;
     for n = 1:N
-        result = results(i);
+        result = results(n);
         num_of_processor = result.processor_count;
         num_of_task = size(result.multiplicity,2);
         num_of_entry = size(result.pattern_ids,2);
@@ -165,14 +165,14 @@ function LQN = simulate_lqn_lqns(results)
                 task_index = task_index+1;
                 multiplicity = result.multiplicity(task_index);
                 think_time = result.think_time(task_index);
-                task_attributes(task_index,:) = [multiplicity,think_time];
+                task_attributes(task_index,:) = [multiplicity,round(think_time,1)];
                 if i == 1
                     sched_strategy = SchedStrategy.REF; % First processor
                 else
                     sched_strategy = SchedStrategy.FCFS; % Other processors
                 end
                 tasks{task_index} = Task(model, ['T', num2str(task_index)], multiplicity, sched_strategy).on(processors{i});
-                tasks{task_index}.setThinkTime(Exp.fitMean(think_time));
+                tasks{task_index}.setThinkTime(Exp.fitMean(round(think_time,1)));
                 task_on_processor_edges(:,task_index) = [task_index;i];
             end
         end
@@ -183,7 +183,6 @@ function LQN = simulate_lqn_lqns(results)
             for j = 1:result.entries_per_task(i)
                 entry_index = entry_index+1;
                 entries{entry_index} = Entry(model, ['E', num2str(entry_index)]).on(tasks{i});
-
                 entry_on_task_edges(:,entry_index) = [entry_index;i];
                 
             end
@@ -206,9 +205,9 @@ function LQN = simulate_lqn_lqns(results)
         for i = 1:result.processor_count-1
             current_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == i);
             next_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == i+1);
-            for entry = 1:length(result.calls_per_entry)
+            for e = 1:length(current_layer_entries)
                 max_calls = length(next_layer_entries);
-                current_calls = result.calls_per_entry(entry);
+                current_calls = result.calls_per_entry(current_layer_entries(e));
             
                 if current_calls > max_calls
                     % Trim number of calls
@@ -265,71 +264,53 @@ function LQN = simulate_lqn_lqns(results)
         activity_call_entry_edges = zeros(2,num_of_calls);
         activity_call_entry_edge_attributes = zeros(num_of_calls,1);
         if_called = zeros(1,num_of_entry);
-    
+        call_index = 0;
         for i = 1:num_of_entry
             parent_task_index = entry_on_task_edges(2, find(entry_on_task_edges(1,:) == i, 1));
             activity_index = activity_index+1;
             % Create primary activity for this entry
-            activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(result.service_times(activity_index))) ...
+            activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(round(result.service_times(activity_index),1))) ...
                 .on(tasks{parent_task_index}).boundTo(entries{i});
-            activity_attributes(activity_index) = result.service_times(activity_index);
+            activity_attributes(activity_index) = round(result.service_times(activity_index),1);
             activity_on_entry_edges(:,activity_index)=[activity_index;i];
             % Check if this entry makes any calls
             if result.calls_per_entry(i)>0
                 current_processor = entry_to_processor_edges(2, find(entry_to_processor_edges(1,:) == i, 1));
                 next_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == current_processor + 1);
-
-
-            end
-
-            outgoing_call_indices = find(LQN.entry_call_entry_edges(1, :) == i); % Find all calls originating from this entry
-            task_id = LQN.entry_on_task_edges(2, i); % Get task ID for this entry
-            is_top_layer_task = (LQN.task_on_processor_edges(2, task_id) == 1); % Check if this task is on the top layer
-    
-            if isempty(outgoing_call_indices) % Bottom layer: no calls
-                activities{i}.repliesTo(entries{i});
-            else
-                % This entry makes calls: create call activities and an OrFork
-                target_activities = {};
-                probabilities = [];
-                call_activity{i} = cell(length(outgoing_call_indices), 1); % Initialize call activities for this entry
-    
-                for j = 1:length(outgoing_call_indices)
-                    call_index = outgoing_call_indices(j);
-                    target_entry = LQN.entry_call_entry_edges(2, call_index); % Target entry index
-                    probability = LQN.entry_call_entry_edge_attributes(call_index, 1); % Call probability
-                    mean_number_of_calls = LQN.entry_call_entry_edge_attributes(call_index, 2); % Mean number of calls
-                    mean_call_time = LQN.entry_call_entry_edge_attributes(call_index, 3); % Mean call time
-                    scv_call_time = LQN.entry_call_entry_edge_attributes(call_index, 4); % SCV of call time
-    
-                    % Create a call activity with a unique name and appropriate attributes
-                    call_name = ['Call', num2str(global_call_counter)];
-                    if is_top_layer_task
-                        % Do not include repliesTo for top-layer tasks
-                        call_activity{i}{j} = Activity(model, call_name, APH.fitMeanAndSCV(mean_call_time, scv_call_time)) ...
-                            .on(tasks{task_id}).synchCall(entries{target_entry}, mean_number_of_calls);
+                for c = 1:result.calls_per_entry(i)
+                    subset = if_called(next_layer_entries);
+                    if all(subset == 1)
+                        selected = next_layer_entries(randi(length(next_layer_entries)));  % random pick
                     else
-                        % Include repliesTo for other tasks
-                        call_activity{i}{j} = Activity(model, call_name, APH.fitMeanAndSCV(mean_call_time, scv_call_time)) ...
-                            .on(tasks{task_id}).synchCall(entries{target_entry}, mean_number_of_calls).repliesTo(entries{i});
+                        idx = find(subset ~= 1, 1);                   % first not-1
+                        selected = next_layer_entries(idx);           % map back to entry index
+                        if_called(selected) = 1;                      % mark it as called
                     end
-    
-                    % Increment the global call counter
-                    global_call_counter = global_call_counter + 1;
-    
-                    % Store the call activity and its probability
-                    target_activities{end + 1} = call_activity{i}{j}; % Add to target activities
-                    probabilities(end + 1) = probability; % Add to probabilities
+                    activity_index = activity_index+1;
+                    call_index = call_index+1;
+                    activities{activity_index} = Activity(model, ['A', num2str(activity_index)], Exp.fitMean(round(result.service_times(activity_index),1))) ...
+                            .on(tasks{parent_task_index}).synchCall(entries{selected}, round(result.call_times(call_index),1));
+                    activity_attributes(activity_index) = round(result.service_times(activity_index),1);
+                    activity_on_entry_edges(:,activity_index)=[activity_index;i];
+                    activity_call_entry_edges(:,num_of_calls)=[activity_index,selected];
+                    activity_call_entry_edge_attributes(:,num_of_calls)=round(result.call_times(call_index),1);
+                    activity_activity_edges(:,num_of_calls) = [activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1),activity_index)];
+                    activity_activity_edge_attributes(num_of_calls) = result.probabilities{i}(c);
+                    if current_processor ~=1
+                        activities{activity_index}.repliesTo(entries{i});
+                    end
                 end
-                if isscalar(probabilities)
-                    tasks{task_id}.addPrecedence(ActivityPrecedence.Serial(activities{i}, target_activities{1}));
+                if isscalar(result.probabilities{i})
+                    tasks{parent_task_index}.addPrecedence(ActivityPrecedence.Serial(activities{activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1))}, activities{activity_index}));
                 else
-                    % Add OrFork precedence for this entry using the provided probabilities
-    
-                    tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{i}, target_activities, round(probabilities, 1)));
+                    target_activities = activities(activity_index - size(result.probabilities{i},2) + 1 : activity_index);
+                    tasks{task_id}.addPrecedence(ActivityPrecedence.OrFork(activities{activity_on_entry_edges(1, find(activity_on_entry_edges(2,:) == i, 1))}, target_activities, round(result.probabilities{i}, 1)));
                 end
+            else
+                activities{activity_index}.repliesTo(entries{i});
             end
         end
+
         % Number of replications
         num_runs = 1;
         
@@ -368,14 +349,18 @@ function LQN = simulate_lqn_lqns(results)
         mean_queue_lengths = mean(all_queue_lengths, 2);
         mean_response_times = mean(all_response_times, 2);
         mean_throughputs = mean(all_throughputs, 2);
-       
-    
-    
-        % Store metrics in a struct
-        entry_metrics = struct();
-        entry_metrics.queue_lengths = mean_queue_lengths;
-        entry_metrics.response_times = mean_response_times;
-        entry_metrics.throughputs = mean_throughputs;
+        LQN(n).task_attributes                      = task_attributes;
+        LQN(n).task_on_processor_edges             = task_on_processor_edges;
+        LQN(n).entry_on_task_edges                 = entry_on_task_edges;
+        LQN(n).activity_attributes                 = activity_attributes;
+        LQN(n).activity_on_entry_edges             = activity_on_entry_edges;
+        LQN(n).activity_activity_edges             = activity_activity_edges;
+        LQN(n).activity_activity_edge_attributes   = activity_activity_edge_attributes;
+        LQN(n).activity_call_entry_edges           = activity_call_entry_edges;
+        LQN(n).activity_call_entry_edge_attributes = activity_call_entry_edge_attributes;
+        LQN(n).entry_queue_lengths                 = mean_queue_lengths;
+        LQN(n).entry_response_times                = mean_response_times;
+        LQN(n).entry_throughputs                   = mean_throughputs;
     end
 end
 
