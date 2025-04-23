@@ -1,12 +1,13 @@
-results = parse_csv_file();
-LQN = simulate_lqn_lqns(results);
-save('LQN_dataset_test.mat', 'LQN');
-function results = parse_csv_file()
-    % Load Sobol sample CSV
-    sobol = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\sampling_data\chunk_001.csv"); % Update path if needed
-    
-    % Load weight lookup table
-    lookup = readmatrix("C:\Users\lizhu\OneDrive - Imperial College London\TEMP\custom_balanced_pattern.csv");
+function LQN = random_lqn_generator_sampling(sobolCSV, lookupCSV, outputMAT)
+    results = parse_csv_file(sobolCSV, lookupCSV);
+    r = results(13);  % Store into a temporary variable
+    disp(r);
+    LQN = simulate_lqn_lqns(results);
+    save(outputMAT, 'LQN');
+end
+function results = parse_csv_file(sobolCSV, lookupCSV)
+    sobol = readmatrix(sobolCSV);
+    lookup = readmatrix(lookupCSV);
 
 
     % Struct template with all fields
@@ -104,9 +105,7 @@ function results = parse_csv_file()
     end
 end
 
-% Example: display first result
-r = results(1);  % Store into a temporary variable
-disp(r);
+
 
 function LQN = simulate_lqn_lqns(results)
     % Simulate the LQN and extract metrics for each entry using LQNS
@@ -315,9 +314,9 @@ function LQN = simulate_lqn_lqns(results)
         num_runs = 1;
         
         % Get model structure sizes
-        num_processors = size(LQN.processor_attributes, 1);
-        num_tasks = size(LQN.task_attributes, 1);
-        num_entries = size(LQN.entry_attributes, 1);
+        num_processors = num_of_processor;
+        num_tasks = num_of_task;
+        num_entries = num_of_entry;
         
         % Preallocate result matrices
         all_queue_lengths = zeros(num_entries, num_runs);
@@ -361,6 +360,8 @@ function LQN = simulate_lqn_lqns(results)
         LQN(n).entry_queue_lengths                 = mean_queue_lengths;
         LQN(n).entry_response_times                = mean_response_times;
         LQN(n).entry_throughputs                   = mean_throughputs;
+        fprintf('Finished %d-th loop\n', n);
+
     end
 end
 
