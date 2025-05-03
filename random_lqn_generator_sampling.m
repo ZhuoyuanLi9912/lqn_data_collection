@@ -1,12 +1,29 @@
-function LQN = random_lqn_generator_sampling(sobolCSV, lookupCSV, outputMAT,logfile)
+function LQN = random_lqn_generator_sampling(sobolCSV, lookupCSV, outputMATname, logfileName)
+    basePath = "C:\GLQN\matlab\data\Sobol_small";
+
+    % Build full paths
+    outputMAT = fullfile(basePath, outputMATname);
+    logfile = fullfile(basePath, logfileName);
+
+    % Add necessary code folders
+    addpath(genpath("C:\GLQN\matlab"));
+
+    % Start logging
     diary(logfile);
+
+    % Main logic
     results = parse_csv_file(sobolCSV, lookupCSV);
     r = results(1);  % Store into a temporary variable
     disp(r);
     LQN = simulate_lqn_lqns(results);
+
+    % Save output
     save(outputMAT, 'LQN');
+
+    % Stop logging
     diary off; 
 end
+
 function results = parse_csv_file(sobolCSV, lookupCSV)
     sobol = readmatrix(sobolCSV);
     lookup = readmatrix(lookupCSV);
@@ -15,15 +32,18 @@ function results = parse_csv_file(sobolCSV, lookupCSV)
     % Struct template with all fields
     template = struct( ...
         'processor_count', zeros(1, 0), ...
-        'tasks_per_proc',  zeros(1, 0), ...
-        'multiplicity',    zeros(1, 0), ...
-        'think_time',      zeros(1, 0), ...
         'entries_per_task',zeros(1, 0), ...
-        'pattern_ids',     zeros(1, 0), ...
+        'tasks_per_proc',  zeros(1, 0), ...
+        'pattern_ids',     zeros(1, 0),...
+        'think_time',      zeros(1, 0), ...
+        'multiplicity',    zeros(1, 0), ...
         'calls_per_entry', zeros(1, 0), ...
         'probabilities',   {cell(1, 0)}, ...
-        'service_times',   zeros(1, 0) ...
-    );
+        'service_times',   zeros(1, 0), ...
+        'num_of_task',     zeros(1,0),...
+        'num_of_entry',     zeros(1,0),...
+        'num_of_call_entry', zeros(1,0) ...
+    );  
 
     results(1:size(sobol, 1)) = template;
 
@@ -38,60 +58,49 @@ function results = parse_csv_file(sobolCSV, lookupCSV)
     
         % 2. Tasks per processor (only first 'processor_count')
         tasks_per_proc = row(idx:idx+processor_count-1);
-        idx = idx + 8;
+        idx = idx + 7;
     
-        % 3. Task multiplicity and think time (only first 'total_tasks')
+        % 3. Entries per task (only first 'total_tasks')
         total_tasks = sum(tasks_per_proc);
-        multiplicity = row(idx:2:idx + 2*total_tasks - 1);
-        think_time = row(idx+1:2:idx + 2*total_tasks - 1);
-        idx = idx + 64;
-    
-        % 4. Entries per task (only first 'total_tasks')
         entries_per_task = row(idx:idx+total_tasks-1);
-        idx = idx + 32;
-    
+        idx = idx + 21;
+
         % 5. Total number of entries
         num_entries = sum(entries_per_task);
-    
-        % 6. Skip activities per entry
-        idx = idx + 128;
-    
-        % 7. Service time start index
-        num_of_last_layer_entry = sum(entries_per_task(end - tasks_per_proc(end) + 1 : end));
-    
-        % 8. Pattern selectors (only first 'num_entries')
-        pattern_ids = row(idx+640 : idx+640+num_entries-1);
-    
+        num_last_layer_task = tasks_per_proc(end);
+        num_last_layer_entry = sum(entries_per_task(end-num_last_layer_task+1:end));
+        pattern_ids = row(idx:idx+num_entries-num_last_layer_entry-1);
+        idx = idx + 63;
+
+        % 4.Task multiplicity and think time (only first 'total_tasks')
+        think_time= row(idx:idx+row(2)-1);
+        idx = idx + 3;
+        multiplicity = row(idx:idx+total_tasks-1);
+
         % 9. Analyze pattern IDs
-        calls_per_entry = zeros(1, num_entries);
-        probabilities = cell(1, num_entries);
+        calls_per_entry = zeros(1, length(pattern_ids));
+
+        probabilities = cell(1,length(pattern_ids));
         
-        for e = 1:num_entries-num_of_last_layer_entry
-            pid = pattern_ids(e);  % Now this is just a row index
+        for e = 1:length(pattern_ids)
+            pid = pattern_ids(e);  
             if pid >= 1 && pid <= size(lookup, 1)
-                weights = lookup(pid, :);  % Just get the row directly
+                weights = lookup(pid, :);  
             else
-                weights = zeros(1, size(lookup, 2));  % fallback to all zeros
+                weights = zeros(1, size(lookup, 2));
             end
         
             nonzero = weights > 0;
             calls_per_entry(e) = sum(nonzero);
             % Find the last non-zero element
-            last_nonzero = find(weights ~= 0, 1, 'last');
-            
-            % Trim the array
-            if isempty(last_nonzero)
-                trimmed_weights = [];  % All zeros
-            else
-                trimmed_weights = weights(1:last_nonzero);
-            end
+            trimmed_weights = weights(weights ~= 0);
             probabilities{e} = trimmed_weights;
         end
 
     
         % 10. Extract service times
-        service_times = row(234:873);
-        call_times = row(1002:1385);
+        service_times = row(117:368);
+        call_times = row(369:557);
     
         % 11. Store into result struct
         results(i).processor_count = processor_count;
@@ -104,6 +113,9 @@ function results = parse_csv_file(sobolCSV, lookupCSV)
         results(i).probabilities = probabilities;
         results(i).service_times = service_times;
         results(i).call_times = call_times;
+        results(i).num_of_task = total_tasks;
+        results(i).num_of_entry = num_entries;
+        results(i).num_of_call_entry = num_entries-num_last_layer_entry;
     end
 end
 
@@ -140,17 +152,16 @@ function LQN = simulate_lqn_lqns(results)
         try
             result = results(n);
             num_of_processor = result.processor_count;
-            num_of_task = size(result.multiplicity,2);
-            num_of_entry = size(result.pattern_ids,2);
+            num_of_task = result.num_of_task;
+            num_of_entry = result.num_of_entry;
+            num_of_call_entry = result.num_of_call_entry;
             
             task_attributes = zeros(num_of_task, 2);
             task_on_processor_edges = zeros(2,num_of_task);
             entry_on_task_edges = zeros(2,num_of_entry);
     
-    
-    
             model = LayeredNetwork('LQN');
-        
+  
             % Step 1: Create processors, tasks, and entries (no calls yet)
             processors = cell(result.processor_count, 1);
             tasks = cell(sum(result.tasks_per_proc), 1);
@@ -167,18 +178,22 @@ function LQN = simulate_lqn_lqns(results)
                 for j = 1:result.tasks_per_proc(i)
                     task_index = task_index+1;
                     multiplicity = result.multiplicity(task_index);
-                    think_time = result.think_time(task_index);
-                    task_attributes(task_index,:) = [multiplicity,round(think_time,1)];
                     if i == 1
                         sched_strategy = SchedStrategy.REF; % First processor
+                        think_time = result.think_time(task_index);
+                        task_attributes(task_index,:) = [multiplicity,round(think_time,1)];
                     else
                         sched_strategy = SchedStrategy.FCFS; % Other processors
+                        task_attributes(task_index,:) = [multiplicity,0];
                     end
                     tasks{task_index} = Task(model, ['T', num2str(task_index)], multiplicity, sched_strategy).on(processors{i});
-                    tasks{task_index}.setThinkTime(Exp.fitMean(round(think_time,1)));
+                    if i == 1
+                        tasks{task_index}.setThinkTime(Exp.fitMean(round(think_time,1)));
+                    end
                     task_on_processor_edges(:,task_index) = [task_index;i];
                 end
             end
+
             entry_index = 0;
             activity_index = 0;
             % Create entries
@@ -279,7 +294,7 @@ function LQN = simulate_lqn_lqns(results)
                 activity_attributes(activity_index) = round(result.service_times(activity_index),1);
                 activity_on_entry_edges(:,activity_index)=[activity_index;i];
                 % Check if this entry makes any calls
-                if result.calls_per_entry(i)>0
+                if i <= num_of_call_entry
                     current_processor = entry_to_processor_edges(2, find(entry_to_processor_edges(1,:) == i, 1));
                     next_layer_entries = entry_to_processor_edges(1, entry_to_processor_edges(2,:) == current_processor + 1);
                     for c = 1:result.calls_per_entry(i)
@@ -370,8 +385,8 @@ function LQN = simulate_lqn_lqns(results)
             fprintf('Finished %d-th loop\n', n);
             fprintf('Total successful models: %d\n', successful_count);
         catch ME
-            fprintf('Error in iteration %d: %s\n', n, ME.message);
-            continue;  % Skip to next iteration
+           fprintf('Error in iteration %d: %s\n', n, ME.message);
+           continue;  % Skip to next iteration
         end
 
     end
