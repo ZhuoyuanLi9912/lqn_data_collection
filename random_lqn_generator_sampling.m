@@ -1,12 +1,12 @@
 function LQN = random_lqn_generator_sampling(sobolCSV, lookupCSV, outputMATname, logfileName)
-    basePath = "C:\GLQN\matlab\data\Sobol_small";
+    basePath = "C:\GLQN\data\Sobol_small_sampling";
 
     % Build full paths
     outputMAT = fullfile(basePath, outputMATname);
     logfile = fullfile(basePath, logfileName);
 
     % Add necessary code folders
-    addpath(genpath("C:\GLQN\matlab"));
+    addpath(genpath("C:\GLQN"));
 
     % Start logging
     diary(logfile);
