@@ -1,5 +1,5 @@
 function LQN = build_LQN_from_Sobol(sobolCSV, lookupCSV, outputMATname, logfileName)
-    basePath = "C:\GLQN\matlab\data\3_10_layers_data";
+    basePath = "C:\GLQN\data\3_10_layer_data";
     [~, fname, ext] = fileparts(sobolCSV);
     fname = fname + ext;  % e.g. "samples_P10_T3_E3_part01.csv"
     % sscanf will scan according to the format and return a numeric vector
@@ -15,7 +15,7 @@ function LQN = build_LQN_from_Sobol(sobolCSV, lookupCSV, outputMATname, logfileN
     logfile = fullfile(basePath, logfileName);
 
     % Add necessary code folders
-    addpath(genpath("C:\GLQN\matlab"));
+    addpath(genpath("C:\GLQN"));
 
     % Start logging
     diary(logfile);
@@ -72,8 +72,9 @@ function results = parse_csv_file(sobolCSV, lookupCSV,P,T,E)
     
         % 3. Entries per task (only first 'total_tasks')
         total_tasks = sum(tasks_per_proc);
-        entries_per_task = row(idx:idx+total_tasks-1);
-        idx = idx + P*T;
+        total_server_task = total_tasks - row(2);
+        entries_per_task = [ones(1, row(2)), row(idx:idx+total_server_task-1)]; 
+        idx = idx + (P-1)*T;
 
         % 5. Total number of entries
         num_entries = sum(entries_per_task);
@@ -214,9 +215,13 @@ function LQN = simulate_lqn_lqns(results)
                     task_on_processor_edges(:,task_index) = [task_index;i];
                 end
             end
-
+            % Build fast task-to-processor lookup array
+            max_task = max(task_on_processor_edges(1, :));
+            task_to_proc = zeros(1, max_task);
+            task_to_proc(task_on_processor_edges(1, :)) = task_on_processor_edges(2, :);
             entry_index = 0;
             activity_index = 0;
+            entry_on_second_layer=0;
             % Create entries
             for i = 1:num_of_task
                 for j = 1:result.entries_per_task(i)
@@ -225,12 +230,8 @@ function LQN = simulate_lqn_lqns(results)
                     entry_on_task_edges(:,entry_index) = [entry_index;i];
                 end
             end
-    
-            % Build fast task-to-processor lookup array
-            max_task = max(task_on_processor_edges(1, :));
-            task_to_proc = zeros(1, max_task);
-            task_to_proc(task_on_processor_edges(1, :)) = task_on_processor_edges(2, :);
-            
+            entry_on_task_edges = entry_on_task_edges(:, any(entry_on_task_edges, 1));
+
             % Create entry-to-processor edge matrix
             entry_indices = entry_on_task_edges(1, :);
             task_indices = entry_on_task_edges(2, :);
@@ -355,8 +356,6 @@ function LQN = simulate_lqn_lqns(results)
                 end
             end
     
-            % Number of replications
-            num_runs = 1;
             
             % Get model structure sizes
             num_processors = num_of_processor;
